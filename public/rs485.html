@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lecture RS485</title>
+  <title>Lecture RS485 - Schneider iEM3250</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
@@ -30,7 +30,7 @@
 </head>
 <body>
   <main>
-    <h1>Compteur RS485 RTU</h1>
+    <h1>Compteur RS485 RTU - Schneider iEM3250</h1>
     <div class="card">
       <div class="grid">
         <label class="span2">Port USB/RS485 (Windows)
@@ -44,25 +44,30 @@
         </label>
         <label>Type
           <select id="registerType">
-            <option value="holding">Holding</option>
+            <option value="holding" selected>Holding</option>
             <option value="input">Input</option>
           </select>
         </label>
-        <label>Adresse départ
-          <input id="startAddress" type="number" value="0">
+        <label>Adresse départ (dec/hex)
+          <input id="startAddress" type="text" value="0x0BF4">
         </label>
         <label>Nb registres
           <input id="registerCount" type="number" value="10" min="1" max="125">
+        </label>
+        <label>Adresse puissance (dec/hex)
+          <input id="powerAddress" type="text" value="0x0BF4">
+        </label>
+        <label>Adresse energie (dec/hex)
+          <input id="energyAddress" type="text" value="0xB02B">
+        </label>
+        <label>Adresse energie active totale (dec/hex)
+          <input id="totalEnergyAddress" type="text" value="0xB02D">
         </label>
       </div>
       <div class="actions">
         <button class="primary" id="readBtn">Lire</button>
         <button id="scanBtn">Scan ID/Adresse</button>
-        <select id="legrandProfile" class="mono">
-          <option value="412040" selected>Profil Legrand 412040</option>
-          <option value="412041">Profil Legrand 412041</option>
-        </select>
-        <button id="legrandBtn">Tester profil Legrand</button>
+        <button id="iem3250Btn">Tester profil iEM3250</button>
         <label class="mono"><input id="autoRefresh" type="checkbox"> Auto 5s</label>
         <span class="mono">Dernier relevé: <b id="lastRead">--</b></span>
       </div>
@@ -87,6 +92,7 @@
         </label>
       </div>
       <div id="message" class="msg">Prêt.</div>
+      <div class="msg mono">Table Schneider: DOCA0005EN-15 (iEM3200/iEM3250), registres Modbus.</div>
 
       <table>
         <thead>
@@ -114,11 +120,11 @@
       <table>
         <thead>
           <tr>
-            <th>Mesure (profil 412041)</th>
+            <th>Mesure (profil iEM3250)</th>
             <th>Valeur</th>
           </tr>
         </thead>
-        <tbody id="legrandBody"></tbody>
+        <tbody id="iem3250Body"></tbody>
       </table>
     </div>
   </main>

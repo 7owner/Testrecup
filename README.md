@@ -65,12 +65,12 @@ Note: la meteo peut aussi etre modifiee directement dans l'admin du dashboard TV
 
 ## Page RS485 (compteur)
 
-Page de lecture Modbus RTU via adaptateur USB/RS485:
+Page de lecture Modbus RTU via adaptateur USB/RS485 (profil Schneider iEM3250):
 
 - URL: `http://localhost:8080/rs485.html`
 - API: `POST /backend/rs485/read`
 - Scan auto: `POST /backend/rs485/scan`
-- Profil Legrand selectable: `412040` / `412041` (lecture d'adresses candidates)
+- Bouton `Tester profil iEM3250` (base table Schneider `DOCA0005EN-15`, lecture float32 avec test offset registre)
 - Parametres typiques:
   - Port: `COMx` (ex: `COM3`)
   - Baud: `19200`

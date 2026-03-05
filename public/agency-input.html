@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saisie Informations Agence</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 24px; background: #f4f7fb; color: #1b2d45; }
+    .card { max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid #d8e3f1; border-radius: 12px; padding: 16px; }
+    h1 { margin: 0 0 10px; font-size: 24px; }
+    p { color: #546b87; }
+    form { display: grid; gap: 10px; }
+    label { display: grid; gap: 4px; font-size: 13px; color: #546b87; }
+    input, textarea { border: 1px solid #c7d7eb; border-radius: 8px; padding: 10px; font-size: 14px; }
+    textarea { min-height: 110px; resize: vertical; }
+    .actions { display: flex; gap: 8px; margin-top: 6px; }
+    button { border: 0; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; }
+    .primary { background: #0070c9; color: #fff; }
+    .secondary { background: #e7edf6; color: #274464; }
+    #status { margin-top: 10px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Saisie Informations Agence</h1>
+    <p>Cette page alimente directement la carte "Informations agence" du dashboard TV.</p>
+
+    <form id="agency-form" autocomplete="off">
+      <label>URL du QR code (obligatoire)
+        <input id="publicUrl" type="text" placeholder="http://192.168.X.X:8080">
+      </label>
+      <label>Message de bienvenue
+        <input id="welcomeMessage" type="text" placeholder="Bienvenue a l'agence AIX">
+      </label>
+      <label>Evenements entreprise
+        <textarea id="eventsText" placeholder="Joyeux anniversaire Samira&#10;Bienvenue a Yacine&#10;Atelier securite vendredi 10h"></textarea>
+      </label>
+      <label>Accidents CVC
+        <input id="accidentCvc" type="number" min="0" value="0">
+      </label>
+      <label>Accidents Defense
+        <input id="accidentDefense" type="number" min="0" value="0">
+      </label>
+      <label>Accidents CFO
+        <input id="accidentCfo" type="number" min="0" value="0">
+      </label>
+      <label>Accidents CFA
+        <input id="accidentCfa" type="number" min="0" value="0">
+      </label>
+
+      <div class="actions">
+        <button class="primary" type="submit">Enregistrer</button>
+        <button class="secondary" id="clear-btn" type="button">Effacer</button>
+      </div>
+    </form>
+
+      <div id="status">Chargement...</div>
+      <p style="margin-top:8px;color:#546b87;font-size:12px;">Cette URL est celle encodee dans le QR affiche sur l'ecran TV.</p>
+  </div>
+
+  <script>
+    const el = {
+      form: document.getElementById('agency-form'),
+      clearBtn: document.getElementById('clear-btn'),
+      status: document.getElementById('status'),
+      publicUrl: document.getElementById('publicUrl'),
+      welcomeMessage: document.getElementById('welcomeMessage'),
+      eventsText: document.getElementById('eventsText'),
+      accidentCvc: document.getElementById('accidentCvc'),
+      accidentDefense: document.getElementById('accidentDefense'),
+      accidentCfo: document.getElementById('accidentCfo'),
+      accidentCfa: document.getElementById('accidentCfa'),
+    };
+
+    init();
+
+    async function init() {
+      await loadCurrent();
+      el.form.addEventListener('submit', onSave);
+      el.clearBtn.addEventListener('click', onClear);
+    }
+
+    async function loadCurrent() {
+      try {
+        const res = await fetch('/backend/agency');
+        const json = await res.json();
+        const d = json?.data || {};
+        el.publicUrl.value = d.publicUrl || window.location.origin;
+        el.welcomeMessage.value = d.welcomeMessage || '';
+        el.eventsText.value = d.eventsText || '';
+        const a = d.accidents || {};
+        el.accidentCvc.value = Number(a.cvc || 0);
+        el.accidentDefense.value = Number(a.defense || 0);
+        el.accidentCfo.value = Number(a.cfo || 0);
+        el.accidentCfa.value = Number(a.cfa || 0);
+        el.status.textContent = 'Informations chargees.';
+      } catch (e) {
+        el.status.textContent = 'Erreur chargement: ' + e.message;
+      }
+    }
+
+    async function onSave(e) {
+      e.preventDefault();
+      const current = await fetch('/backend/agency').then((r) => r.json()).then((j) => j?.data || {}).catch(() => ({}));
+      const qrUrl = (el.publicUrl.value || '').trim() || window.location.origin;
+      const payload = {
+        name: current.name || '',
+        address: current.address || '',
+        contact: current.contact || '',
+        publicUrl: qrUrl,
+        openTime: current.openTime || '07:00',
+        closeTime: current.closeTime || '20:00',
+        welcomeMessage: el.welcomeMessage.value.trim(),
+        eventsText: el.eventsText.value.trim(),
+        accidents: {
+          cvc: Math.max(0, Number(el.accidentCvc.value || 0)),
+          defense: Math.max(0, Number(el.accidentDefense.value || 0)),
+          cfo: Math.max(0, Number(el.accidentCfo.value || 0)),
+          cfa: Math.max(0, Number(el.accidentCfa.value || 0)),
+        },
+        notes: current.notes || '',
+      };
+      el.publicUrl.value = qrUrl;
+
+      try {
+        const res = await fetch('/backend/agency', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        el.status.textContent = 'Informations enregistrees avec succes.';
+      } catch (err) {
+        el.status.textContent = 'Erreur enregistrement: ' + err.message;
+      }
+    }
+
+    async function onClear() {
+      el.publicUrl.value = window.location.origin;
+      el.welcomeMessage.value = '';
+      el.eventsText.value = '';
+      el.accidentCvc.value = 0;
+      el.accidentDefense.value = 0;
+      el.accidentCfo.value = 0;
+      el.accidentCfa.value = 0;
+      await onSave(new Event('submit'));
+    }
+  </script>
+</body>
+</html>

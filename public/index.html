@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agence Aix TV</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700&family=IBM+Plex+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="tv-mode">
+  <main class="layout">
+    <!-- METEO (couvre tout le header) -->
+    <header class="weather-mini weather-hero" id="weather-mini">
+      <div class="wh-header">
+        <div class="wh-brand">
+          <p class="eyebrow">Fauché</p>
+          <h1>Agence Aix</h1>
+        </div>
+
+        <div class="wh-actions">
+          <div class="meta">
+            <div class="meta-label">Dernier relevé</div>
+            <div class="meta-value" id="last-update">--</div>
+          </div>
+          <div class="meta">
+            <div class="meta-label">Intrusions</div>
+            <div class="chip chip-alert" id="header-intrusions">0</div>
+          </div>
+          <div class="meta">
+            <div class="meta-label">Alertes bornes</div>
+            <div class="chip chip-warn" id="header-alerts">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="wh-body">
+        <div class="wh-now">
+          <div>
+            <div class="wm-loc" id="wm-loc">Meteo</div>
+            <div class="wm-cond" id="wm-cond">Configurer meteo (admin)</div>
+          </div>
+          <div class="wm-right">
+            <div class="wm-icon" id="wm-icon"></div>
+            <div class="wm-temp" id="wm-temp">--</div>
+          </div>
+        </div>
+        <div class="wm-hours" id="wm-hours"></div>
+      </div>
+    </header>
+
+    <section class="ssi-floating" aria-label="Etat securite">
+      <div class="ssi-orbit safe" id="ssi-orbit">
+        <div class="ssi-ring ssi-ring-a"></div>
+        <div class="ssi-ring ssi-ring-b"></div>
+        <div class="ssi-core">
+          <div class="ssi-days" id="ssi-days">--</div>
+          <div class="ssi-days-label">jours sans intrusion</div>
+        </div>
+      </div>
+      <div class="ssi-summary" id="ssi-summary">Supervision securisee</div>
+      <div class="ssi-details" id="ssi-details">
+        <div class="ssi-detail-row"><span>Jours avec intrusion</span><b id="ssi-intrusion-days">0</b></div>
+        <div class="ssi-detail-row"><span>Intrusions totales</span><b id="ssi-intrusions-count">0</b></div>
+        <div class="ssi-detail-note" id="ssi-detail-note">Aucune intrusion enregistree.</div>
+      </div>
+    </section>
+
+    <!-- RS485 / COMPTEURS -->
+    <section class="panel panel-large-h panel-stations-map">
+      <div class="panel-head">
+        <div class="panel-title">Compteurs RS485 (Differents conso)</div>
+        <span class="view-label">Mois: camembert | Annee: graphe</span>
+      </div>
+      <div class="energy-month-row">
+        <div class="chart-container month-pie"><canvas id="monthPieChart"></canvas></div>
+        <aside class="month-total-card">
+          <div class="month-total-label">Conso 3 mois</div>
+          <div class="month-split" id="energy-prev3m-split"></div>
+          <div class="month-total-value" id="energy-prev3m-total">-- kWh</div>
+          <div class="month-total-sub" id="energy-prev3m-range">Detail mensuel</div>
+        </aside>
+      </div>
+      <div class="chart-container year-chart"><canvas id="yearChart"></canvas></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">Compteur IRVE (GPIO17)</div>
+      <div class="irve-grid">
+        <div class="irve-kpi"><span>Pulses</span><b id="irve-pulses">0</b></div>
+        <div class="irve-kpi"><span>Puissance</span><b id="irve-power">--</b></div>
+        <div class="irve-kpi"><span>EA pulse</span><b id="irve-ea-pulse">--</b></div>
+        <div class="irve-kpi"><span>EA session</span><b id="irve-ea-session">--</b></div>
+        <div class="irve-kpi"><span>EA total</span><b id="irve-ea-total">--</b></div>
+        <div class="irve-kpi"><span>dt pulse</span><b id="irve-dt">--</b></div>
+      </div>
+      <div class="hint">Derniere mesure IRVE: <span id="irve-ts">--</span></div>
+    </section>
+
+    <!-- BORNES (top activite) -->
+    <section class="panel panel-large-h panel-stations-map">
+      <div class="panel-title">Bornes de charge</div>
+      <div class="station-map-wrap">
+        <div class="station-layout" id="station-layout" aria-label="Cartographie des bornes"></div>
+        <div class="station-legend">
+          <div class="legend-item"><span class="legend-dot available"></span>Disponible</div>
+          <div class="legend-item"><span class="legend-dot busy"></span>Occupe</div>
+          <div class="legend-item"><span class="legend-dot offline"></span>Hors ligne</div>
+        </div>
+      </div>
+      <!-- Compteurs actives/disponibles retires pour laisser toute la place a la cartographie -->
+    </section>
+
+    <!--
+    REPARTITION ZONES (temporairement desactivee)
+    <section class="panel">
+      <div class="panel-title">Repartition par zones</div>
+      <div class="chart-container"><canvas id="zonesChart"></canvas></div>
+      <div class="hint">Comptage par zone (d'après les stations EVCE2).</div>
+    </section>
+    -->
+
+    <!-- AGENCE -->
+    <section class="panel panel-xl panel-agency-center">
+      <div class="panel-title">Informations agence</div>
+      <div class="agency-grid">
+        <div>
+          <div class="agency-display" id="agency-display">Agence non renseignee</div>
+          <div class="accidents-card" id="accidents-card">
+            <div class="accidents-title">Nombre d'accidents par metier</div>
+            <div class="accidents-chart-wrap">
+              <canvas id="accidentsChart"></canvas>
+            </div>
+            <div class="accidents-kpis">
+              <div class="accident-kpi"><span>CVC</span><b id="accident-cvc">0</b></div>
+              <div class="accident-kpi"><span>Defense</span><b id="accident-defense">0</b></div>
+              <div class="accident-kpi"><span>CFO</span><b id="accident-cfo">0</b></div>
+              <div class="accident-kpi"><span>CFA</span><b id="accident-cfa">0</b></div>
+            </div>
+          </div>
+        </div>
+        <div class="qr-box">
+          <div class="qr-title">QR Code</div>
+          <img id="agency-qr" alt="QR" />
+          <div id="qr-label" class="qr-label mono">--</div>
+        </div>
+      </div>
+    </section>
+
+    <!--
+    LISTE BORNES (temporairement desactivee)
+    <section class="panel panel-large-h">
+      <div class="panel-title">Detail des bornes</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nom</th>
+              <th>Zone</th>
+              <th>Statut</th>
+              <th>Connecteurs</th>
+              <th>Amperage (A)</th>
+            </tr>
+          </thead>
+          <tbody id="stations-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+    -->
+
+    <!-- ADMIN (Ctrl+Shift+A) -->
+    <section class="panel admin-section" id="admin-panel">
+      <div class="panel-title">Administration</div>
+      <div class="admin-grid">
+        <form id="connect-form" class="form-box">
+          <h3>Connexion API</h3>
+          <label>URL API
+            <input id="baseUrl" name="baseUrl" type="url" placeholder="https://10.x.x.x/api/v2" required>
+          </label>
+          <label>Identifiant
+            <input id="login" name="login" type="text" placeholder="admin">
+          </label>
+          <label>Mot de passe
+            <input id="password" name="password" type="password">
+          </label>
+          <label>Token Bearer (optionnel)
+            <input id="token" name="token" type="text" placeholder="Bearer eyJ...">
+          </label>
+          <label>Rafraichissement (sec)
+            <input id="refreshSeconds" name="refreshSeconds" type="number" min="3" max="120" value="10">
+          </label>
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">Connecter</button>
+            <button type="button" id="disconnect-btn" class="btn btn-secondary">Deconnecter</button>
+            <button type="button" id="simulate-btn" class="btn btn-secondary">Mode simulation</button>
+          </div>
+          <p id="api-message" class="api-message">Configurez puis connectez-vous.</p>
+        </form>
+
+        <form id="weather-form" class="form-box">
+          <h3>Meteo (interne)</h3>
+          <label>Ville / Lieu
+            <input id="weatherLocation" type="text" placeholder="Paris">
+          </label>
+          <label>Temperature (C)
+            <input id="weatherTempC" type="number" step="0.1" placeholder="14">
+          </label>
+          <label>Condition
+            <input id="weatherCondition" type="text" placeholder="Legere pluie">
+          </label>
+          <label>Icon
+            <select id="weatherIcon">
+              <option value="sun">Soleil</option>
+              <option value="cloud">Nuageux</option>
+              <option value="rain">Pluie</option>
+              <option value="storm">Orage</option>
+              <option value="snow">Neige</option>
+            </select>
+          </label>
+          <label>Heures (HH:MM=Temp;...)
+            <input id="weatherHourly" type="text" placeholder="08:00=14;11:00=16;14:00=17">
+          </label>
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+            <button type="button" id="weather-clear-btn" class="btn btn-secondary">Effacer</button>
+            <button type="button" id="weather-sample-btn" class="btn btn-secondary">Exemple</button>
+          </div>
+          <p id="weather-admin-msg" class="api-message">Aucune meteo enregistree.</p>
+        </form>
+
+        <div class="form-box">
+          <h3>Liens</h3>
+          <div class="hint">Agence externe: <span class="mono">/agency-input.html</span></div>
+          <div class="hint">Message du jour: <span class="mono">/message-du-jour.html</span></div>
+          <div class="hint">Toggle admin: <span class="mono">Ctrl+Shift+A</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

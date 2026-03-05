@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Message du Jour</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 24px; background: #f4f7fb; color: #1b2d45; }
+    .card { max-width: 820px; margin: 0 auto; background: #fff; border: 1px solid #d8e3f1; border-radius: 12px; padding: 16px; }
+    h1 { margin: 0 0 10px; font-size: 24px; }
+    p { color: #546b87; margin: 6px 0; }
+    form { display: grid; gap: 10px; margin-top: 12px; }
+    label { display: grid; gap: 4px; font-size: 13px; color: #546b87; }
+    input, textarea { border: 1px solid #c7d7eb; border-radius: 8px; padding: 10px; font-size: 14px; }
+    textarea { min-height: 140px; resize: vertical; }
+    .actions { display: flex; gap: 8px; margin-top: 6px; }
+    button { border: 0; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; }
+    .primary { background: #0070c9; color: #fff; }
+    .secondary { background: #e7edf6; color: #274464; }
+    .preview { margin-top: 14px; border-top: 1px dashed #cfe0f5; padding-top: 12px; }
+    .preview h2 { margin: 0 0 8px; font-size: 16px; }
+    .preview-box { border: 1px solid #d8e3f1; border-radius: 10px; padding: 12px; background: #fbfdff; }
+    .muted { color: #546b87; font-size: 12px; }
+    #status { margin-top: 10px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Message du Jour</h1>
+    <p>Page separee pour saisir le message. Il n'est pas affiche sur l'ecran TV tant que vous ne l'integrez pas.</p>
+
+    <form id="motd-form" autocomplete="off">
+      <label>Titre
+        <input id="title" type="text" placeholder="Information importante">
+      </label>
+      <label>Message
+        <textarea id="message" placeholder="Texte du message du jour..."></textarea>
+      </label>
+      <div class="actions">
+        <button class="primary" type="submit">Enregistrer</button>
+        <button class="secondary" id="clear-btn" type="button">Effacer</button>
+      </div>
+    </form>
+
+    <div id="status">Chargement...</div>
+
+    <div class="preview">
+      <h2>Apercu</h2>
+      <div class="preview-box">
+        <div><strong id="p-title">(sans titre)</strong></div>
+        <div id="p-message" style="white-space: pre-wrap; margin-top: 8px;"></div>
+        <div class="muted" id="p-updated" style="margin-top: 10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const el = {
+      form: document.getElementById('motd-form'),
+      clearBtn: document.getElementById('clear-btn'),
+      status: document.getElementById('status'),
+      title: document.getElementById('title'),
+      message: document.getElementById('message'),
+      pTitle: document.getElementById('p-title'),
+      pMessage: document.getElementById('p-message'),
+      pUpdated: document.getElementById('p-updated'),
+    };
+
+    init();
+
+    async function init() {
+      await loadCurrent();
+      el.form.addEventListener('submit', onSave);
+      el.clearBtn.addEventListener('click', onClear);
+      el.title.addEventListener('input', renderPreview);
+      el.message.addEventListener('input', renderPreview);
+    }
+
+    async function loadCurrent() {
+      try {
+        const res = await fetch('/backend/motd');
+        const json = await res.json();
+        const d = json?.data || {};
+        el.title.value = d.title || '';
+        el.message.value = d.message || '';
+        el.status.textContent = 'Message charge.';
+        renderPreview(d);
+      } catch (e) {
+        el.status.textContent = 'Erreur chargement: ' + e.message;
+        renderPreview({});
+      }
+    }
+
+    function renderPreview(data = null) {
+      const title = (data && typeof data.title === 'string') ? data.title : el.title.value;
+      const message = (data && typeof data.message === 'string') ? data.message : el.message.value;
+      const updatedAt = data && data.updatedAt ? data.updatedAt : null;
+
+      el.pTitle.textContent = title.trim() || '(sans titre)';
+      el.pMessage.textContent = message.trim() || '(sans message)';
+      el.pUpdated.textContent = updatedAt ? ('Derniere mise a jour: ' + new Date(updatedAt).toLocaleString()) : '';
+    }
+
+    async function onSave(e) {
+      e.preventDefault();
+      const payload = {
+        title: el.title.value.trim(),
+        message: el.message.value.trim(),
+      };
+
+      try {
+        const res = await fetch('/backend/motd', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.message || ('HTTP ' + res.status));
+        el.status.textContent = 'Message enregistre avec succes.';
+        renderPreview(json.data);
+      } catch (err) {
+        el.status.textContent = 'Erreur enregistrement: ' + err.message;
+      }
+    }
+
+    async function onClear() {
+      el.title.value = '';
+      el.message.value = '';
+      await onSave(new Event('submit'));
+    }
+  </script>
+</body>
+</html>

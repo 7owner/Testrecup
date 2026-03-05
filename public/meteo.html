@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meteo (Saisie)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 24px; background: #f4f7fb; color: #1b2d45; }
+    .wrap { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 420px 1fr; gap: 14px; }
+    .card { background: #fff; border: 1px solid #d8e3f1; border-radius: 12px; padding: 16px; }
+    h1 { margin: 0 0 10px; font-size: 22px; }
+    p { color: #546b87; margin: 6px 0; }
+    form { display: grid; gap: 10px; }
+    label { display: grid; gap: 4px; font-size: 13px; color: #546b87; }
+    input, select, textarea { border: 1px solid #c7d7eb; border-radius: 8px; padding: 10px; font-size: 14px; }
+    .actions { display: flex; gap: 8px; margin-top: 6px; }
+    button { border: 0; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; }
+    .primary { background: #0070c9; color: #fff; }
+    .secondary { background: #e7edf6; color: #274464; }
+
+    .preview {
+      background: linear-gradient(135deg, #0b2c52 0%, #0a4d8b 55%, #0a6d9c 100%);
+      color: #eaf3ff;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.15);
+      padding: 18px;
+      min-height: 240px;
+      position: relative;
+      overflow: hidden;
+    }
+    .preview::before {
+      content: '';
+      position: absolute;
+      inset: -30px;
+      background: radial-gradient(circle at 20% 10%, rgba(255,255,255,0.18), transparent 40%),
+                  radial-gradient(circle at 80% 0%, rgba(255,255,255,0.12), transparent 45%);
+      pointer-events: none;
+    }
+    .pv-top { position: relative; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .pv-loc { font-size: 12px; opacity: 0.9; font-weight: 700; }
+    .pv-temp { font-size: 44px; font-weight: 800; letter-spacing: -0.03em; margin-top: 6px; }
+    .pv-cond { font-size: 14px; opacity: 0.9; }
+    .pv-icon { font-size: 24px; text-align: right; }
+    .pv-hours { position: relative; display: flex; gap: 10px; margin-top: 16px; }
+    .pv-hour { background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 10px; min-width: 88px; text-align: center; }
+    .pv-hour b { display: block; margin-top: 6px; font-size: 18px; }
+    .muted { position: relative; margin-top: 10px; font-size: 12px; opacity: 0.8; }
+
+    #status { margin-top: 10px; font-size: 13px; }
+    @media (max-width: 980px) { .wrap { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Saisie Meteo</h1>
+      <p>Cette page alimente le widget meteo dans le header de l'ecran TV.</p>
+
+      <form id="weather-form" autocomplete="off">
+        <label>Ville / Lieu
+          <input id="location" type="text" placeholder="Paris">
+        </label>
+        <label>Temperature (C)
+          <input id="tempC" type="number" step="0.1" placeholder="14">
+        </label>
+        <label>Condition
+          <input id="condition" type="text" placeholder="Legere pluie">
+        </label>
+        <label>Icon
+          <select id="icon">
+            <option value="sun">Soleil</option>
+            <option value="cloud">Nuageux</option>
+            <option value="rain">Pluie</option>
+            <option value="storm">Orage</option>
+            <option value="snow">Neige</option>
+          </select>
+        </label>
+        <label>Heures (format: HH:MM=Temp;HH:MM=Temp...)
+          <input id="hourly" type="text" placeholder="08:00=14;11:00=16;14:00=17">
+        </label>
+        <div class="actions">
+          <button class="primary" type="submit">Enregistrer</button>
+          <button class="secondary" id="clear-btn" type="button">Effacer</button>
+        </div>
+      </form>
+
+      <div id="status">Chargement...</div>
+    </div>
+
+    <div class="card">
+      <h1>Apercu (style TV)</h1>
+      <div class="preview">
+        <div class="pv-top">
+          <div>
+            <div id="p-loc" class="pv-loc">--</div>
+            <div id="p-temp" class="pv-temp">--</div>
+            <div id="p-cond" class="pv-cond">--</div>
+          </div>
+          <div id="p-icon" class="pv-icon">--</div>
+        </div>
+        <div id="p-hours" class="pv-hours"></div>
+        <div id="p-updated" class="muted"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const el = {
+      form: document.getElementById('weather-form'),
+      clearBtn: document.getElementById('clear-btn'),
+      status: document.getElementById('status'),
+      location: document.getElementById('location'),
+      tempC: document.getElementById('tempC'),
+      condition: document.getElementById('condition'),
+      icon: document.getElementById('icon'),
+      hourly: document.getElementById('hourly'),
+      pLoc: document.getElementById('p-loc'),
+      pTemp: document.getElementById('p-temp'),
+      pCond: document.getElementById('p-cond'),
+      pIcon: document.getElementById('p-icon'),
+      pHours: document.getElementById('p-hours'),
+      pUpdated: document.getElementById('p-updated'),
+    };
+
+    init();
+
+    async function init() {
+      await loadCurrent();
+      el.form.addEventListener('submit', onSave);
+      el.clearBtn.addEventListener('click', onClear);
+      for (const k of ['location','tempC','condition','icon','hourly']) {
+        el[k].addEventListener('input', renderPreview);
+      }
+    }
+
+    async function loadCurrent() {
+      try {
+        const res = await fetch('/backend/weather');
+        const json = await res.json();
+        const d = json?.data || {};
+        el.location.value = d.location || '';
+        el.tempC.value = (typeof d.tempC === 'number') ? d.tempC : '';
+        el.condition.value = d.condition || '';
+        el.icon.value = d.icon || 'sun';
+        el.hourly.value = Array.isArray(d.hourly) ? d.hourly.map((h) => `${h.time}=${h.tempC ?? ''}`).join(';') : '';
+        el.status.textContent = 'Meteo chargee.';
+        renderPreview(d);
+      } catch (e) {
+        el.status.textContent = 'Erreur chargement: ' + e.message;
+        renderPreview({});
+      }
+    }
+
+    function iconEmoji(name) {
+      const n = String(name || '').toLowerCase();
+      if (n.includes('rain')) return '☔';
+      if (n.includes('cloud')) return '☁';
+      if (n.includes('storm')) return '⛈';
+      if (n.includes('snow')) return '❄';
+      return '☀';
+    }
+
+    function parseHourly(text) {
+      const raw = String(text || '').split(';').map((s) => s.trim()).filter(Boolean);
+      return raw.map((part) => {
+        const [time, temp] = part.split('=').map((s) => s.trim());
+        const n = Number(temp);
+        return { time, tempC: Number.isFinite(n) ? n : null, icon: 'sun' };
+      }).filter((x) => x.time);
+    }
+
+    function renderPreview(data = null) {
+      const d = data || {
+        location: el.location.value,
+        tempC: el.tempC.value === '' ? null : Number(el.tempC.value),
+        condition: el.condition.value,
+        icon: el.icon.value,
+        hourly: parseHourly(el.hourly.value),
+        updatedAt: null,
+      };
+
+      el.pLoc.textContent = d.location || '--';
+      el.pTemp.textContent = (typeof d.tempC === 'number') ? (Math.round(d.tempC) + '°') : '--';
+      el.pCond.textContent = d.condition || '--';
+      el.pIcon.textContent = iconEmoji(d.icon);
+
+      const hours = Array.isArray(d.hourly) ? d.hourly.slice(0, 5) : [];
+      el.pHours.innerHTML = hours.length ? hours.map((h) => {
+        const t = h.time;
+        const v = (typeof h.tempC === 'number') ? (Math.round(h.tempC) + '°') : '--';
+        return `<div class="pv-hour">${t}<b>${v}</b></div>`;
+      }).join('') : '<div class="pv-hour">--<b>--</b></div>';
+
+      el.pUpdated.textContent = d.updatedAt ? ('Derniere mise a jour: ' + new Date(d.updatedAt).toLocaleString()) : '';
+    }
+
+    async function onSave(e) {
+      e.preventDefault();
+      const payload = {
+        location: el.location.value.trim(),
+        tempC: el.tempC.value === '' ? null : Number(el.tempC.value),
+        condition: el.condition.value.trim(),
+        icon: el.icon.value,
+        hourly: parseHourly(el.hourly.value),
+      };
+
+      try {
+        const res = await fetch('/backend/weather', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.message || ('HTTP ' + res.status));
+        el.status.textContent = 'Meteo enregistree.';
+        renderPreview(json.data);
+      } catch (err) {
+        el.status.textContent = 'Erreur enregistrement: ' + err.message;
+      }
+    }
+
+    async function onClear() {
+      el.location.value = '';
+      el.tempC.value = '';
+      el.condition.value = '';
+      el.icon.value = 'sun';
+      el.hourly.value = '';
+      await onSave(new Event('submit'));
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lecture RS485</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans', sans-serif; background: #0b1734; color: #e8f2ff; }
+    main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    h1 { margin: 0 0 14px; font-size: 26px; }
+    .card { border: 1px solid rgba(0,255,136,.22); border-radius: 12px; padding: 14px; background: rgba(10,23,52,.7); }
+    .grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; opacity: .9; }
+    input, select { border: 1px solid rgba(255,255,255,.2); border-radius: 8px; background: #12254a; color: #fff; padding: 8px; font-family: 'JetBrains Mono', monospace; }
+    .span2 { grid-column: span 2; }
+    .actions { margin-top: 12px; display: flex; gap: 10px; align-items: center; }
+    button { border: 0; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; }
+    .primary { background: #00d084; color: #041525; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .msg { margin-top: 10px; min-height: 20px; font-size: 13px; color: #a8c1e8; }
+    .ok { color: #00e18f; }
+    .err { color: #ff6f9b; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-family: 'JetBrains Mono', monospace; }
+    th, td { border-bottom: 1px solid rgba(255,255,255,.12); padding: 8px; text-align: left; font-size: 13px; }
+    th { color: #9fc2f0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Compteur RS485 RTU</h1>
+    <div class="card">
+      <div class="grid">
+        <label class="span2">Port USB/RS485 (Windows)
+          <input id="portPath" value="COM3">
+        </label>
+        <label>Baud
+          <input id="baudRate" type="number" value="19200">
+        </label>
+        <label>ID esclave
+          <input id="unitId" type="number" value="5">
+        </label>
+        <label>Type
+          <select id="registerType">
+            <option value="holding">Holding</option>
+            <option value="input">Input</option>
+          </select>
+        </label>
+        <label>Adresse départ
+          <input id="startAddress" type="number" value="0">
+        </label>
+        <label>Nb registres
+          <input id="registerCount" type="number" value="10" min="1" max="125">
+        </label>
+      </div>
+      <div class="actions">
+        <button class="primary" id="readBtn">Lire</button>
+        <button id="scanBtn">Scan ID/Adresse</button>
+        <select id="legrandProfile" class="mono">
+          <option value="412040" selected>Profil Legrand 412040</option>
+          <option value="412041">Profil Legrand 412041</option>
+        </select>
+        <button id="legrandBtn">Tester profil Legrand</button>
+        <label class="mono"><input id="autoRefresh" type="checkbox"> Auto 5s</label>
+        <span class="mono">Dernier relevé: <b id="lastRead">--</b></span>
+      </div>
+      <div class="grid" style="margin-top:10px;">
+        <label>ID début
+          <input id="idStart" type="number" value="1" min="1" max="247">
+        </label>
+        <label>ID fin
+          <input id="idEnd" type="number" value="20" min="1" max="247">
+        </label>
+        <label>Adr début
+          <input id="addressStart" type="number" value="0" min="0">
+        </label>
+        <label>Adr fin
+          <input id="addressEnd" type="number" value="30" min="0">
+        </label>
+        <label>Reg/lecture scan
+          <input id="perReadCount" type="number" value="1" min="1" max="10">
+        </label>
+        <label>Max réponses
+          <input id="maxMatches" type="number" value="20" min="1" max="100">
+        </label>
+      </div>
+      <div id="message" class="msg">Prêt.</div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Registre</th>
+            <th>Décimal</th>
+            <th>Hex</th>
+          </tr>
+        </thead>
+        <tbody id="regsBody"></tbody>
+      </table>
+
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Adresse</th>
+            <th>Type</th>
+            <th>Valeurs</th>
+          </tr>
+        </thead>
+        <tbody id="scanBody"></tbody>
+      </table>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Mesure (profil 412041)</th>
+            <th>Valeur</th>
+          </tr>
+        </thead>
+        <tbody id="legrandBody"></tbody>
+      </table>
+    </div>
+  </main>
+  <script type="module" src="/rs485.js"></script>
+</body>
+</html>

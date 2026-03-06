@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700&family=IBM+Plex+Sans:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body class="tv-mode">
+<body class="tv-mode tv-scale-60">
   <main class="layout">
     <!-- METEO (couvre tout le header) -->
     <header class="weather-mini weather-hero" id="weather-mini">
@@ -26,11 +26,11 @@
           </div>
           <div class="meta">
             <div class="meta-label">Intrusions</div>
-            <div class="chip chip-alert" id="header-intrusions">0</div>
+            <div class="chip chip-alert" id="header-intrusions">Bientot disponible</div>
           </div>
           <div class="meta">
             <div class="meta-label">Alertes bornes</div>
-            <div class="chip chip-warn" id="header-alerts">0</div>
+            <div class="chip chip-warn" id="header-alerts">Deconnecte</div>
           </div>
         </div>
       </div>
@@ -70,7 +70,7 @@
     <!-- RS485 / COMPTEURS -->
     <section class="panel panel-large-h panel-stations-map">
       <div class="panel-head">
-        <div class="panel-title">Compteurs RS485 (Differents conso)</div>
+        <div class="panel-title">Compteur IRVE</div>
         <span class="view-label">Mois: camembert | Annee: graphe</span>
       </div>
       <div class="energy-month-row">
@@ -85,28 +85,13 @@
       <div class="chart-container year-chart"><canvas id="yearChart"></canvas></div>
     </section>
 
-    <section class="panel">
-      <div class="panel-title">Compteur IRVE (GPIO17)</div>
-      <div class="irve-grid">
-        <div class="irve-kpi"><span>Pulses</span><b id="irve-pulses">0</b></div>
-        <div class="irve-kpi"><span>Puissance</span><b id="irve-power">--</b></div>
-        <div class="irve-kpi"><span>EA pulse</span><b id="irve-ea-pulse">--</b></div>
-        <div class="irve-kpi"><span>EA session</span><b id="irve-ea-session">--</b></div>
-        <div class="irve-kpi"><span>EA total</span><b id="irve-ea-total">--</b></div>
-        <div class="irve-kpi"><span>dt pulse</span><b id="irve-dt">--</b></div>
-      </div>
-      <div class="hint">Derniere mesure IRVE: <span id="irve-ts">--</span></div>
-    </section>
-
     <!-- BORNES (top activite) -->
-    <section class="panel panel-large-h panel-stations-map">
+    <section class="panel panel-large-h panel-stations-map panel-switchable" id="panel-stations">
       <div class="panel-title">Bornes de charge</div>
       <div class="station-map-wrap">
         <div class="station-layout" id="station-layout" aria-label="Cartographie des bornes"></div>
         <div class="station-legend">
-          <div class="legend-item"><span class="legend-dot available"></span>Disponible</div>
-          <div class="legend-item"><span class="legend-dot busy"></span>Occupe</div>
-          <div class="legend-item"><span class="legend-dot offline"></span>Hors ligne</div>
+          <div class="legend-item"><span class="legend-dot busy"></span>Non connecte</div>
         </div>
       </div>
       <!-- Compteurs actives/disponibles retires pour laisser toute la place a la cartographie -->
@@ -122,7 +107,7 @@
     -->
 
     <!-- AGENCE -->
-    <section class="panel panel-xl panel-agency-center">
+    <section class="panel panel-xl panel-agency-center panel-switchable panel-switched-out" id="panel-agency">
       <div class="panel-title">Informations agence</div>
       <div class="agency-grid">
         <div>

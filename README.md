@@ -103,6 +103,14 @@ Payload attendu:
 }
 ```
 
+Lecture RS485 fixe utilisee par l'index (si disponible):
+
+- port: `COM11` (override: `IRVE_RS485_PORT`)
+- baud: `19200` (override: `IRVE_RS485_BAUD`)
+- id: `1` (override: `IRVE_RS485_UNIT_ID`)
+- adresse energie: `0xB02A` (override: `IRVE_RS485_ENERGY_REGISTER`)
+- format serie: `8N1` (data bits 8, parity none, stop bit 1)
+
 ## Certificat TLS auto-signe
 
 Si votre EVCE2 utilise HTTPS avec certificat auto-signe, lancez:

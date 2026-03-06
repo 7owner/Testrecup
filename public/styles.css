@@ -23,6 +23,13 @@ body {
   overflow: hidden;
 }
 
+.tv-scale-60 .layout {
+  width: calc(100vw / 0.6);
+  height: calc(100vh / 0.6);
+  transform: scale(0.6);
+  transform-origin: top left;
+}
+
 .tv-mode {
   user-select: auto;
 }
@@ -294,6 +301,7 @@ body::before {
 .panel-large-h { grid-column: span 2; }
 .panel-xl { grid-column: span 2; grid-row: span 2; }
 .panel-agency-center { grid-column: 2 / span 2; }
+.panel-switched-out { display: none !important; }
 .panel-stations-map {
   min-height: 560px;
   display: flex;
@@ -1045,6 +1053,67 @@ input:focus, select:focus {
   margin: 0;
   font-size: 12px;
   color: rgba(176, 184, 212, 0.95);
+}
+
+/* TV fit: keep everything visible without vertical scroll */
+.tv-mode .layout {
+  overflow: hidden;
+}
+
+@media (max-height: 900px) {
+  .layout {
+    padding: 10px;
+    gap: 10px;
+  }
+  .weather-mini {
+    padding: 12px 14px;
+  }
+  .wm-temp {
+    font-size: 24px;
+  }
+  .wm-hours {
+    margin-top: 8px;
+    gap: 8px;
+  }
+  .wm-hour {
+    min-width: 54px;
+    padding: 6px 8px;
+  }
+  .panel {
+    padding: 12px;
+    gap: 8px;
+    min-height: 120px;
+  }
+  .panel-title {
+    padding-bottom: 6px;
+  }
+  .panel-stations-map {
+    min-height: 430px;
+  }
+  .station-layout {
+    min-height: 220px;
+  }
+  .chart-container.month-pie {
+    height: 190px;
+  }
+  .chart-container.year-chart {
+    height: 160px;
+  }
+  .month-total-value {
+    font-size: 24px;
+  }
+  #agency-qr {
+    width: 130px;
+    height: 130px;
+  }
+  .agency-cinematic {
+    min-height: 150px;
+  }
+  .ssi-orbit {
+    width: 126px;
+    height: 126px;
+    top: -40px;
+  }
 }
 
 /* RESPONSIVE */

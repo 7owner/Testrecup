@@ -29,6 +29,10 @@ const elements = {
   irveEaTotal: document.getElementById('irve-ea-total'),
   irveDt: document.getElementById('irve-dt'),
   irveTs: document.getElementById('irve-ts'),
+  irveDayKwh: document.getElementById('irve-day-kwh'),
+  irveMonthKwh: document.getElementById('irve-month-kwh'),
+  irveYearKwh: document.getElementById('irve-year-kwh'),
+  irveYearBase: document.getElementById('irve-year-base'),
   energyPrev3mSplit: document.getElementById('energy-prev3m-split'),
   energyPrev3mTotal: document.getElementById('energy-prev3m-total'),
   energyPrev3mRange: document.getElementById('energy-prev3m-range'),
@@ -71,6 +75,8 @@ const elements = {
   stationsTotal: document.getElementById('stations-total'),
   stationsTotal2: document.getElementById('stations-total-2'),
   stationLayout: document.getElementById('station-layout'),
+  panelStations: document.getElementById('panel-stations'),
+  panelAgency: document.getElementById('panel-agency'),
 
   adminPanel: document.getElementById('admin-panel'),
 };
@@ -80,10 +86,15 @@ let pollTimer = null;
 let agencyInfoState = null;
 let weatherState = null;
 let irveState = null;
+const IRVE_YEAR_BASE_KWH = 5100;
+const IRVE_COMBINED_BASE_3DAYS_AGO_KWH = 9777;
+const IRVE_DAY_BASE_KEY = 'irve_day_base';
+const IRVE_MONTH_BASE_KEY = 'irve_month_base';
 const savedSimulationPref = localStorage.getItem('evce2_simulation_mode');
 let simulationMode = savedSimulationPref == null ? true : savedSimulationPref === '1';
 let stationSimulationTick = 0;
 let meterSimulationBucket = null;
+let panelSwitchTimer = null;
 const LAST_INTRUSION_KEY = 'evce2_last_intrusion_at';
 const DEFAULT_DAYS_WITHOUT_INTRUSION = 137;
 const INTRUSION_TOTAL_KEY = 'evce2_intrusion_total';
@@ -102,6 +113,7 @@ init();
 
 async function init() {
   bindEvents();
+  startPanelSwitcher();
   updateSimulationUi();
   loadConfig();
   await loadAgencyInfoFromBackend();
@@ -138,6 +150,17 @@ async function init() {
   }
 
   await tryAutoReconnectWithSavedToken();
+}
+
+function startPanelSwitcher() {
+  if (!elements.panelStations || !elements.panelAgency) return;
+  if (panelSwitchTimer) clearInterval(panelSwitchTimer);
+  let showStations = true;
+  panelSwitchTimer = setInterval(() => {
+    showStations = !showStations;
+    elements.panelStations.classList.toggle('panel-switched-out', !showStations);
+    elements.panelAgency.classList.toggle('panel-switched-out', showStations);
+  }, 3000);
 }
 
 function bindEvents() {
@@ -234,6 +257,8 @@ function stopPolling() {
 
 async function refreshNow() {
   if (simulationMode) {
+    await loadWeatherFromBackend();
+    await loadIrveFromBackend();
     const snapshot = buildSimulationSnapshot();
     renderSnapshot(snapshot);
     setConnected(true);
@@ -304,8 +329,13 @@ function renderSnapshot(snapshot) {
   renderStationCounters(stations);
   renderStationMap(stations);
 
-  const ts = new Date(snapshot.timestamp);
-  if (elements.lastUpdate) elements.lastUpdate.textContent = ts.toLocaleTimeString();
+  const irveTsRaw = snapshot.data?.irve?.data?.timestamp_iso || snapshot.data?.irve?.data?.updatedAt || null;
+  const lastTs = irveTsRaw ? new Date(irveTsRaw) : new Date(snapshot.timestamp);
+  if (elements.lastUpdate) {
+    elements.lastUpdate.textContent = Number.isNaN(lastTs.getTime())
+      ? '--'
+      : `${lastTs.toLocaleDateString()} ${lastTs.toLocaleTimeString()}`;
+  }
   if (elements.meterUpdated) elements.meterUpdated.textContent = new Date(snapshot.timestamp).toLocaleTimeString();
   if (!simulationMode) {
     setMessage('Dashboard actualise.');
@@ -360,7 +390,7 @@ function buildSimulationSnapshot() {
     zoneMap[String(s.id)] = s.zone;
   }
 
-  const weather = buildSimulationWeather(now);
+  const weather = weatherState || buildSimulationWeather(now);
 
   return {
     timestamp: now.toISOString(),
@@ -385,21 +415,7 @@ function buildSimulationSnapshot() {
       },
       agencyInfo: { ok: true, data: agencyInfoState || null },
       weather: { ok: true, data: weather },
-      irve: {
-        ok: true,
-        data: {
-          pin: 17,
-          pulses: stationSimulationTick * 3,
-          dt_s: round2(3 + ((stationSimulationTick % 4) * 0.3)),
-          power_kw: round2(12 + Math.sin(stationSimulationTick * 0.3) * 3),
-          ea_pulse_kwh: round2((stationSimulationTick * 3) * 0.01),
-          ea_session_kwh: round2((stationSimulationTick * 3) * 0.01),
-          ea_total_kwh: round2(1041.2 + ((stationSimulationTick * 3) * 0.01)),
-          timestamp_iso: now.toISOString(),
-          timestamp_unix: Math.floor(now.getTime() / 1000),
-          updatedAt: now.toISOString(),
-        },
-      },
+      irve: { ok: true, data: irveState || null },
     },
   };
 }
@@ -463,7 +479,9 @@ function renderEnergyCharts(metersData) {
 }
 
 function buildMonthPieView(metersData) {
-  const labels = ['CVC', 'Eclairage', 'Courant', 'Etage', 'Divers'];
+  const labels = ['IRVE', 'CVC', 'Eclairage', 'Courant', 'Etage', 'Divers'];
+  const irveScenario = getIrveScenario();
+  const irveTotal = irveScenario.currentYear;
   const powerValues = [
     Number(metersData?.cvc) || 0,
     Number(metersData?.eclairage) || 0,
@@ -471,29 +489,28 @@ function buildMonthPieView(metersData) {
     Number(metersData?.etage) || 0,
     Number(metersData?.divers) || 0,
   ];
-  const totalPower = powerValues.reduce((a, b) => a + b, 0);
-  // Le camembert doit correspondre au total "Conso 3 mois" (Dec N-1 + Jan + Fev en mars).
-  const total3MonthsKwh = getPrevious3MonthsTotal(new Date()) || totalPower || 1;
-  const values = powerValues.map((v) => round2((v / Math.max(totalPower, 1)) * total3MonthsKwh));
-  return { labels, values };
+  const values = [round2(irveTotal), ...powerValues.map((v) => round2(Math.max(0, v)))];
+  const colors = [
+    'rgba(0,255,136,0.92)', // IRVE vert
+    'rgba(163,175,194,0.86)',
+    'rgba(140,153,173,0.86)',
+    'rgba(121,134,155,0.86)',
+    'rgba(103,116,138,0.86)',
+    'rgba(84,98,121,0.86)',
+  ];
+  return { labels, values, colors };
 }
 
 function renderPrevious3MonthsTotal() {
   if (!elements.energyPrev3mSplit || !elements.energyPrev3mTotal || !elements.energyPrev3mRange) return;
-  const now = new Date();
-  const monthEntries = [];
-  let total = 0;
-
-  // 3 mois precedents complets (ex: en mars => dec, jan, fev)
-  for (let i = 3; i >= 1; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const value = getMonthKwhWithOverrides(d);
-    total += value;
-    monthEntries.push({
-      label: d.toLocaleString('fr-FR', { month: 'short' }),
-      value,
-    });
-  }
+  const irveScenario = getIrveScenario();
+  const monthEntries = [
+    { label: 'janv.', value: irveScenario.jan },
+    { label: 'fevr.', value: irveScenario.fev },
+    { label: 'mars', value: irveScenario.mars },
+    { label: 'annee', value: irveScenario.currentYear },
+    { label: 'cumule', value: irveScenario.combinedNow },
+  ];
 
   elements.energyPrev3mSplit.innerHTML = monthEntries
     .map((entry) => `
@@ -503,8 +520,26 @@ function renderPrevious3MonthsTotal() {
       </div>
     `)
     .join('');
-  elements.energyPrev3mTotal.textContent = `${Math.round(total).toLocaleString('fr-FR')} kWh`;
-  elements.energyPrev3mRange.textContent = 'Total sur 3 mois';
+  elements.energyPrev3mTotal.textContent = `${Math.round(irveScenario.combinedNow).toLocaleString('fr-FR')} kWh`;
+  elements.energyPrev3mRange.textContent = `Annee: ${Math.round(irveScenario.currentYear).toLocaleString('fr-FR')} kWh | Cumule: ${Math.round(irveScenario.combinedNow).toLocaleString('fr-FR')} kWh`;
+}
+
+function getIrveScenario() {
+  // 9 777 = index cumule (annee precedente + annee courante) il y a 3 jours.
+  // EA+ actuelle est l'increment depuis ce point de reference.
+  const mars = Math.max(0, Number(irveState?.ea_total_kwh || 0));
+  const combinedNow = IRVE_COMBINED_BASE_3DAYS_AGO_KWH + mars; // ex: 10 819
+  const currentYear = Math.max(0, combinedNow - IRVE_YEAR_BASE_KWH); // ex: 10 819 - 5 100
+  const janFevTotal = Math.max(0, currentYear - mars);
+  const jan = janFevTotal / 2;
+  const fev = janFevTotal / 2;
+  return {
+    jan,
+    fev,
+    mars,
+    currentYear,
+    combinedNow,
+  };
 }
 
 function getPrevious3MonthsTotal(refDate) {
@@ -580,7 +615,8 @@ function buildYearEnergyView() {
   const labels = [];
   const values = [];
   const now = new Date();
-  const startYear = now.getFullYear() - 1; // debut de collecte: annee derniere
+  // Pas de donnees fictives: seulement N-1 et N.
+  const startYear = now.getFullYear() - 1;
   for (let y = startYear; y <= now.getFullYear(); y++) {
     labels.push(String(y));
     values.push(round2(getYearKwhWithOverrides(y, now)));
@@ -597,11 +633,10 @@ function buildYearEnergyView() {
 function getYearKwhWithOverrides(year, nowDate = new Date()) {
   // Contrainte metier: l'annee derniere est fixe a 5100 kWh.
   if (year === nowDate.getFullYear() - 1) return 5100;
-  let yearlyTotal = 0;
-  for (let m = 0; m < 12; m++) {
-    yearlyTotal += getMonthKwhWithOverrides(new Date(year, m, 1));
+  if (year === nowDate.getFullYear()) {
+    return round2(getIrveScenario().currentYear);
   }
-  return yearlyTotal;
+  return 0;
 }
 
 function seedEnergyHistoryIfEmpty() {
@@ -778,14 +813,13 @@ function renderStationMap(stations) {
       if (!mappedName) return '';
       const pos = slotsByDisplayName[mappedName];
       if (!pos) return '';
-      const state = stationMapState(s);
-      const amp = Number(s.amperage || 0).toFixed(1);
+      const state = { className: 'busy', label: 'non connecte' };
       return `
         <div class="station-pin ${state.className}" style="left:${pos.x}%;top:${pos.y}%;">
           <span class="pin-dot"></span>
           <div class="pin-card">
             <div class="pin-name">${escapeHtml(mappedName)}</div>
-            <div class="pin-meta">${escapeHtml(state.label)} - ${amp}A</div>
+            <div class="pin-meta">${escapeHtml(state.label)}</div>
           </div>
         </div>
       `;
@@ -808,15 +842,25 @@ function stationMapState(station) {
 
 function renderSsiState(connected, stations, productStatusData = null) {
   if (!elements.ssiOrbit || !elements.ssiSummary || !elements.ssiDays) return;
+  if (elements.headerIntrusions) elements.headerIntrusions.textContent = 'Bientot disponible';
+  if (elements.headerAlerts) elements.headerAlerts.textContent = 'Deconnecte';
   elements.ssiSummary.classList.remove('intrusion-camo');
+  if (elements.ssiIntrusionDays) elements.ssiIntrusionDays.textContent = 'Bientot disponible';
+  if (elements.ssiIntrusionsCount) elements.ssiIntrusionsCount.textContent = 'Bientot disponible';
+  if (elements.ssiDetailNote) elements.ssiDetailNote.textContent = 'Informations bientot disponibles';
+
+  // Mode temporaire demande: toujours afficher supervision securisee.
+  elements.ssiOrbit.className = 'ssi-orbit safe';
+  elements.ssiDays.textContent = '0';
+  elements.ssiSummary.textContent = 'Supervision securisee';
+  return;
+
   if (!connected) {
     elements.ssiOrbit.className = 'ssi-orbit alert';
     elements.ssiDays.textContent = '--';
     if (elements.ssiIntrusionDays) elements.ssiIntrusionDays.textContent = '--';
     if (elements.ssiIntrusionsCount) elements.ssiIntrusionsCount.textContent = '--';
     if (elements.ssiDetailNote) elements.ssiDetailNote.textContent = 'Supervision non disponible';
-    if (elements.headerIntrusions) elements.headerIntrusions.textContent = '--';
-    if (elements.headerAlerts) elements.headerAlerts.textContent = '--';
     elements.ssiSummary.textContent = 'Supervision non disponible';
     return;
   }
@@ -833,8 +877,8 @@ function renderSsiState(connected, stations, productStatusData = null) {
   if (elements.ssiIntrusionDays) elements.ssiIntrusionDays.textContent = String(intrusionStats.daysWithIntrusion);
   if (elements.ssiIntrusionsCount) elements.ssiIntrusionsCount.textContent = String(intrusionStats.totalIntrusions);
   if (elements.ssiDetailNote) elements.ssiDetailNote.textContent = intrusionStats.lastNote;
-  if (elements.headerIntrusions) elements.headerIntrusions.textContent = String(intrusionStats.totalIntrusions);
-  if (elements.headerAlerts) elements.headerAlerts.textContent = String(faultCount);
+  if (elements.headerIntrusions) elements.headerIntrusions.textContent = 'Bientot disponible';
+  if (elements.headerAlerts) elements.headerAlerts.textContent = 'Deconnecte';
 
   if (intrusion || faultCount > 0) {
     elements.ssiOrbit.className = 'ssi-orbit alert';
@@ -1180,6 +1224,7 @@ async function loadIrveFromBackend() {
 function renderIrve(info) {
   if (!elements.irvePulses) return;
   const n = (v, d = '--') => (Number.isFinite(Number(v)) ? String(v) : d);
+  const totalKwh = Number(info?.ea_total_kwh);
   elements.irvePulses.textContent = n(Math.round(Number(info?.pulses || 0)), '0');
   elements.irvePower.textContent = Number.isFinite(Number(info?.power_kw))
     ? `${Number(info.power_kw).toFixed(3)} kW`
@@ -1190,14 +1235,73 @@ function renderIrve(info) {
   elements.irveEaSession.textContent = Number.isFinite(Number(info?.ea_session_kwh))
     ? `${Number(info.ea_session_kwh).toFixed(3)} kWh`
     : '--';
-  elements.irveEaTotal.textContent = Number.isFinite(Number(info?.ea_total_kwh))
-    ? `${Number(info.ea_total_kwh).toFixed(3)} kWh`
+  elements.irveEaTotal.textContent = Number.isFinite(totalKwh)
+    ? `${totalKwh.toFixed(3)} kWh`
     : '--';
   elements.irveDt.textContent = Number.isFinite(Number(info?.dt_s))
     ? `${Number(info.dt_s).toFixed(2)} s`
     : '--';
   const ts = info?.timestamp_iso || info?.updatedAt || null;
   elements.irveTs.textContent = ts ? new Date(ts).toLocaleTimeString() : '--';
+
+  const conso = computeIrveConsumptions(totalKwh);
+  if (elements.irveDayKwh) {
+    elements.irveDayKwh.textContent = Number.isFinite(conso.day)
+      ? `${conso.day.toFixed(3)} kWh`
+      : '--';
+  }
+  if (elements.irveMonthKwh) {
+    elements.irveMonthKwh.textContent = Number.isFinite(conso.month)
+      ? `${conso.month.toFixed(3)} kWh`
+      : '--';
+  }
+  if (elements.irveYearKwh) {
+    elements.irveYearKwh.textContent = Number.isFinite(conso.year)
+      ? `${conso.year.toFixed(3)} kWh`
+      : '--';
+  }
+  if (elements.irveYearBase) {
+    elements.irveYearBase.textContent = `${IRVE_YEAR_BASE_KWH.toFixed(3)} kWh`;
+  }
+}
+
+function computeIrveConsumptions(totalKwh) {
+  if (!Number.isFinite(totalKwh)) {
+    return { day: NaN, month: NaN, year: NaN };
+  }
+  const now = new Date();
+  const dayKey = now.toISOString().slice(0, 10);
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  const dayRaw = localStorage.getItem(IRVE_DAY_BASE_KEY);
+  let dayBase = null;
+  try {
+    dayBase = dayRaw ? JSON.parse(dayRaw) : null;
+  } catch {
+    dayBase = null;
+  }
+  if (!dayBase || dayBase.key !== dayKey || !Number.isFinite(Number(dayBase.value))) {
+    dayBase = { key: dayKey, value: totalKwh };
+    localStorage.setItem(IRVE_DAY_BASE_KEY, JSON.stringify(dayBase));
+  }
+
+  const monthRaw = localStorage.getItem(IRVE_MONTH_BASE_KEY);
+  let monthBase = null;
+  try {
+    monthBase = monthRaw ? JSON.parse(monthRaw) : null;
+  } catch {
+    monthBase = null;
+  }
+  if (!monthBase || monthBase.key !== monthKey || !Number.isFinite(Number(monthBase.value))) {
+    monthBase = { key: monthKey, value: totalKwh };
+    localStorage.setItem(IRVE_MONTH_BASE_KEY, JSON.stringify(monthBase));
+  }
+
+  return {
+    day: Math.max(0, totalKwh - Number(dayBase.value)),
+    month: Math.max(0, totalKwh - Number(monthBase.value)),
+    year: Math.max(0, totalKwh - IRVE_YEAR_BASE_KWH),
+  };
 }
 
 function renderWeather(info) {

@@ -152,17 +152,18 @@ export function createCharts() {
   const monthPieChart = monthPieEl ? new Chart(monthPieEl, {
     type: 'doughnut',
     data: {
-      labels: ['CVC', 'Eclairage', 'Courant', 'Etage', 'Divers'],
+      labels: ['IRVE', 'CVC', 'Eclairage', 'Courant', 'Etage', 'Divers'],
       datasets: [
         {
           label: 'Repartition conso mois',
-          data: [0, 0, 0, 0, 0],
+          data: [0, 0, 0, 0, 0, 0],
           backgroundColor: [
-            'rgba(0,255,136,0.86)',
-            'rgba(0,153,255,0.86)',
-            'rgba(255,170,0,0.85)',
-            'rgba(255,20,147,0.78)',
-            'rgba(160,196,255,0.85)',
+            'rgba(0,255,136,0.92)',
+            'rgba(163,175,194,0.86)',
+            'rgba(140,153,173,0.86)',
+            'rgba(121,134,155,0.86)',
+            'rgba(103,116,138,0.86)',
+            'rgba(84,98,121,0.86)',
           ],
           borderColor: 'rgba(10,14,39,0.55)',
           borderWidth: 2,
@@ -358,9 +359,12 @@ export function updateEnergyChart(chart, view) {
 
 export function updateMonthPieChart(chart, monthData) {
   if (!chart) return;
-  const values = Array.isArray(monthData?.values) ? monthData.values.map((v) => Number(v) || 0) : [0, 0, 0, 0, 0];
-  chart.data.labels = Array.isArray(monthData?.labels) ? monthData.labels : ['CVC', 'Eclairage', 'Courant', 'Etage', 'Divers'];
+  const values = Array.isArray(monthData?.values) ? monthData.values.map((v) => Number(v) || 0) : [0, 0, 0, 0, 0, 0];
+  chart.data.labels = Array.isArray(monthData?.labels) ? monthData.labels : ['IRVE', 'CVC', 'Eclairage', 'Courant', 'Etage', 'Divers'];
   chart.data.datasets[0].data = values;
+  if (Array.isArray(monthData?.colors) && monthData.colors.length === values.length) {
+    chart.data.datasets[0].backgroundColor = monthData.colors;
+  }
   chart.update();
 }
 

@@ -4,6 +4,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { URL } = require('url');
 
 function insecureTlsEnabled() {
@@ -34,11 +35,16 @@ if (insecureTlsEnabled()) {
 }
 
 const PORT = Number(process.env.PORT || 8080);
+const HOST = String(process.env.HOST || '0.0.0.0');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const AGENCY_INFO_FILE = path.join(__dirname, 'agency-info.json');
 const MOTD_FILE = path.join(__dirname, 'motd.json');
 const WEATHER_FILE = path.join(__dirname, 'weather.json');
 const IRVE_FILE = path.join(__dirname, 'irve.json');
+const IRVE_RS485_PORT = String(process.env.IRVE_RS485_PORT || 'COM11');
+const IRVE_RS485_BAUD = Number(process.env.IRVE_RS485_BAUD || 19200);
+const IRVE_RS485_UNIT_ID = Number(process.env.IRVE_RS485_UNIT_ID || 1);
+const IRVE_RS485_ENERGY_REGISTER = parseRegisterAddress(process.env.IRVE_RS485_ENERGY_REGISTER || '0xB02B');
 
 const session = {
   baseUrl: '',
@@ -50,6 +56,18 @@ let agencyInfo = loadAgencyInfo();
 let motd = loadMotd();
 let weather = loadWeather();
 let irve = loadIrve();
+let liveWeatherCache = {
+  fetchedAt: 0,
+  data: null,
+};
+
+function parseRegisterAddress(rawValue) {
+  const s = String(rawValue || '').trim();
+  if (!s) return 0;
+  if (/^0x[0-9a-f]+$/i.test(s)) return parseInt(s, 16);
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function getModbusSerial() {
   try {
@@ -86,6 +104,84 @@ function sanitizeRs485Config(body) {
     timeoutMs: Number.isFinite(timeoutMs) ? Math.max(500, Math.min(15000, timeoutMs)) : 2000,
     registerType,
   };
+}
+
+function decodeIrveEnergyKwh(regA, regB) {
+  const u32 = ((Number(regA || 0) & 0xffff) * 65536) + (Number(regB || 0) & 0xffff);
+  const u32sw = ((Number(regB || 0) & 0xffff) * 65536) + (Number(regA || 0) & 0xffff);
+  const candidates = [
+    { codec: 'uint32_div10', value: u32 / 10 },
+    { codec: 'uint32_sw_div10', value: u32sw / 10 },
+    { codec: 'uint32_div100', value: u32 / 100 },
+    { codec: 'uint32_sw_div100', value: u32sw / 100 },
+    { codec: 'uint32_div1000', value: u32 / 1000 },
+    { codec: 'uint32_sw_div1000', value: u32sw / 1000 },
+    { codec: 'uint32', value: u32 },
+    { codec: 'uint32_sw', value: u32sw },
+  ];
+  const valid = candidates.find((c) => Number.isFinite(c.value) && c.value >= 0 && c.value <= 1_000_000_000);
+  return valid || { codec: 'unknown', value: 0 };
+}
+
+async function readIrveFromRs485Fixed() {
+  const ModbusRTU = getModbusSerial();
+  const client = new ModbusRTU();
+  const addresses = [Math.max(0, IRVE_RS485_ENERGY_REGISTER - 1), IRVE_RS485_ENERGY_REGISTER];
+  const types = ['holding', 'input'];
+  try {
+    await client.connectRTUBuffered(IRVE_RS485_PORT, {
+      baudRate: Number.isFinite(IRVE_RS485_BAUD) ? IRVE_RS485_BAUD : 19200,
+      dataBits: 8,
+      stopBits: 1,
+      parity: 'none',
+    });
+    client.setID(Number.isFinite(IRVE_RS485_UNIT_ID) ? IRVE_RS485_UNIT_ID : 1);
+    client.setTimeout(1200);
+
+    for (const type of types) {
+      for (const address of addresses) {
+        try {
+          const result = type === 'input'
+            ? await client.readInputRegisters(address, 2)
+            : await client.readHoldingRegisters(address, 2);
+          const regs = Array.isArray(result?.data) ? result.data : [];
+          if (regs.length < 2) continue;
+          const decoded = decodeIrveEnergyKwh(regs[0], regs[1]);
+          return {
+            pin: 17,
+            pulses: Number(irve?.pulses || 0),
+            dt_s: irve?.dt_s ?? null,
+            power_kw: irve?.power_kw ?? null,
+            ea_pulse_kwh: irve?.ea_pulse_kwh ?? null,
+            ea_session_kwh: irve?.ea_session_kwh ?? null,
+            ea_total_kwh: Number(decoded.value || 0),
+            timestamp_iso: new Date().toISOString(),
+            timestamp_unix: Math.floor(Date.now() / 1000),
+            updatedAt: new Date().toISOString(),
+            source: 'rs485-fixed',
+            rs485: {
+              portPath: IRVE_RS485_PORT,
+              baudRate: IRVE_RS485_BAUD,
+              unitId: IRVE_RS485_UNIT_ID,
+              address,
+              type,
+              codec: decoded.codec,
+              registers: regs,
+            },
+          };
+        } catch {
+          // try next combination
+        }
+      }
+    }
+    throw new Error('Aucune reponse RS485 exploitable sur l adresse energie configuree.');
+  } finally {
+    try {
+      if (typeof client.close === 'function') await client.close();
+    } catch {
+      // ignore close errors
+    }
+  }
 }
 
 function sanitizeRs485ScanConfig(body) {
@@ -258,6 +354,93 @@ function sendFile(res, filePath) {
     res.writeHead(200, { 'Content-Type': contentType });
     res.end(data);
   });
+}
+
+function httpJsonGet(urlString, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlString);
+    const transport = url.protocol === 'https:' ? https : http;
+    const req = transport.request({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      method: 'GET',
+      path: `${url.pathname}${url.search}`,
+      timeout: timeoutMs,
+      headers: {
+        Accept: 'application/json',
+      },
+    }, (resApi) => {
+      let raw = '';
+      resApi.on('data', (chunk) => { raw += chunk; });
+      resApi.on('end', () => {
+        try {
+          resolve(JSON.parse(raw));
+        } catch {
+          reject(new Error('Invalid JSON response'));
+        }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function weatherCodeToLabel(code) {
+  const c = Number(code);
+  if (c === 0) return { condition: 'Ensoleille', icon: 'sun' };
+  if ([1, 2].includes(c)) return { condition: 'Partiellement nuageux', icon: 'cloud' };
+  if (c === 3) return { condition: 'Nuageux', icon: 'cloud' };
+  if ([45, 48].includes(c)) return { condition: 'Brouillard', icon: 'cloud' };
+  if ([51, 53, 55, 56, 57].includes(c)) return { condition: 'Bruine', icon: 'rain' };
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(c)) return { condition: 'Pluie', icon: 'rain' };
+  if ([71, 73, 75, 77, 85, 86].includes(c)) return { condition: 'Neige', icon: 'snow' };
+  if ([95, 96, 99].includes(c)) return { condition: 'Orage', icon: 'storm' };
+  return { condition: 'Meteo', icon: 'cloud' };
+}
+
+async function fetchAixWeatherLive() {
+  const now = Date.now();
+  if (liveWeatherCache.data && (now - liveWeatherCache.fetchedAt) < 5 * 60 * 1000) {
+    return liveWeatherCache.data;
+  }
+
+  const url = 'https://api.open-meteo.com/v1/forecast?latitude=43.5297&longitude=5.4474&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&forecast_days=1&timezone=Europe%2FParis';
+  const data = await httpJsonGet(url, 8000);
+  const currentTemp = Number(data?.current?.temperature_2m);
+  const currentCode = Number(data?.current?.weather_code);
+  const mapped = weatherCodeToLabel(currentCode);
+
+  const hourlyTime = Array.isArray(data?.hourly?.time) ? data.hourly.time : [];
+  const hourlyTemp = Array.isArray(data?.hourly?.temperature_2m) ? data.hourly.temperature_2m : [];
+  const hourlyCode = Array.isArray(data?.hourly?.weather_code) ? data.hourly.weather_code : [];
+  const nowHour = new Date().getHours();
+  const hourly = [];
+  for (let i = 0; i < hourlyTime.length; i++) {
+    const t = new Date(hourlyTime[i]);
+    if (Number.isNaN(t.getTime())) continue;
+    if (t.getHours() < nowHour) continue;
+    const rowMapped = weatherCodeToLabel(hourlyCode[i]);
+    hourly.push({
+      time: `${String(t.getHours()).padStart(2, '0')}:00`,
+      tempC: Number.isFinite(Number(hourlyTemp[i])) ? Number(hourlyTemp[i]) : null,
+      icon: rowMapped.icon,
+    });
+    if (hourly.length >= 5) break;
+  }
+
+  const out = {
+    location: 'Aix-en-Provence',
+    tempC: Number.isFinite(currentTemp) ? currentTemp : null,
+    condition: mapped.condition,
+    icon: mapped.icon,
+    hourly,
+    updatedAt: new Date().toISOString(),
+    source: 'open-meteo',
+  };
+  liveWeatherCache = { fetchedAt: now, data: out };
+  return out;
 }
 
 function parseBody(req) {
@@ -768,8 +951,20 @@ async function pollData() {
   }
   dataMap.agencyInfo = { ok: true, data: agencyInfo };
   dataMap.motd = { ok: true, data: motd };
-  dataMap.weather = { ok: true, data: weather };
-  dataMap.irve = { ok: true, data: irve };
+  try {
+    const liveWeather = await fetchAixWeatherLive();
+    weather = { ...weather, ...liveWeather };
+    dataMap.weather = { ok: true, data: weather };
+  } catch (error) {
+    dataMap.weather = { ok: true, data: weather, liveError: error.message };
+  }
+  try {
+    const liveIrve = await readIrveFromRs485Fixed();
+    irve = { ...irve, ...liveIrve };
+    dataMap.irve = { ok: true, data: irve };
+  } catch (error) {
+    dataMap.irve = { ok: true, data: irve, liveError: error.message };
+  }
 
   return {
     timestamp: new Date().toISOString(),
@@ -920,7 +1115,13 @@ async function routeApi(req, res, pathname) {
     }
 
     if (pathname === '/backend/weather' && req.method === 'GET') {
-      sendJson(res, 200, { ok: true, data: weather });
+      try {
+        const liveWeather = await fetchAixWeatherLive();
+        weather = { ...weather, ...liveWeather };
+        sendJson(res, 200, { ok: true, data: weather });
+      } catch (error) {
+        sendJson(res, 200, { ok: true, data: weather, liveError: error.message });
+      }
       return true;
     }
 
@@ -933,7 +1134,13 @@ async function routeApi(req, res, pathname) {
     }
 
     if (pathname === '/backend/irve' && req.method === 'GET') {
-      sendJson(res, 200, { ok: true, data: irve });
+      try {
+        const liveIrve = await readIrveFromRs485Fixed();
+        irve = { ...irve, ...liveIrve };
+        sendJson(res, 200, { ok: true, data: irve });
+      } catch (error) {
+        sendJson(res, 200, { ok: true, data: irve, liveError: error.message });
+      }
       return true;
     }
 
@@ -995,8 +1202,31 @@ const server = http.createServer(async (req, res) => {
   sendFile(res, filePath);
 });
 
-server.listen(PORT, () => {
+function getLanIps() {
+  const out = [];
+  const nets = os.networkInterfaces();
+  for (const ifName of Object.keys(nets)) {
+    const rows = nets[ifName] || [];
+    for (const row of rows) {
+      if (!row) continue;
+      if (row.family !== 'IPv4') continue;
+      if (row.internal) continue;
+      out.push(row.address);
+    }
+  }
+  return [...new Set(out)];
+}
+
+server.listen(PORT, HOST, () => {
   console.log(`Dashboard server running on http://localhost:${PORT}`);
+  const ips = getLanIps();
+  if (ips.length) {
+    for (const ip of ips) {
+      console.log(`LAN access: http://${ip}:${PORT}`);
+    }
+  } else {
+    console.log('LAN access: no IPv4 interface detected.');
+  }
   if (insecureTlsEnabled()) {
     console.log('Insecure TLS mode is enabled (self-signed cert accepted).');
   } else {

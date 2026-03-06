@@ -36,6 +36,15 @@ if (insecureTlsEnabled()) {
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = String(process.env.HOST || '0.0.0.0');
+const HTTPS_PORT = Number(process.env.HTTPS_PORT || 8443);
+const HTTPS_CERT_FILE = process.env.HTTPS_CERT_FILE
+  ? path.resolve(process.env.HTTPS_CERT_FILE)
+  : path.join(__dirname, 'certs', 'localhost-cert.pem');
+const HTTPS_KEY_FILE = process.env.HTTPS_KEY_FILE
+  ? path.resolve(process.env.HTTPS_KEY_FILE)
+  : path.join(__dirname, 'certs', 'localhost-key.pem');
+const FORCE_HTTPS = String(process.env.FORCE_HTTPS || '').trim().toLowerCase() === '1'
+  || String(process.env.FORCE_HTTPS || '').trim().toLowerCase() === 'true';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const AGENCY_INFO_FILE = path.join(__dirname, 'agency-info.json');
 const MOTD_FILE = path.join(__dirname, 'motd.json');
@@ -1176,8 +1185,34 @@ async function routeApi(req, res, pathname) {
   return false;
 }
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+function tryLoadHttpsOptions() {
+  try {
+    if (!fs.existsSync(HTTPS_CERT_FILE) || !fs.existsSync(HTTPS_KEY_FILE)) {
+      return null;
+    }
+    return {
+      cert: fs.readFileSync(HTTPS_CERT_FILE),
+      key: fs.readFileSync(HTTPS_KEY_FILE),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function handleRequest(req, res, options = {}) {
+  const encrypted = Boolean(req.socket && req.socket.encrypted);
+  const proto = encrypted ? 'https' : 'http';
+  const hostHeader = req.headers.host || `${HOST}:${encrypted ? HTTPS_PORT : PORT}`;
+  const url = new URL(req.url, `${proto}://${hostHeader}`);
+
+  if (options.redirectToHttps && !encrypted) {
+    const hostOnly = String(hostHeader).split(':')[0];
+    const redirectHost = `${hostOnly}:${HTTPS_PORT}`;
+    const location = `https://${redirectHost}${url.pathname}${url.search}`;
+    res.writeHead(301, { Location: location });
+    res.end();
+    return;
+  }
 
   if (url.pathname.startsWith('/backend/')) {
     const handled = await routeApi(req, res, url.pathname);
@@ -1200,6 +1235,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   sendFile(res, filePath);
+}
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res, { redirectToHttps: false }).catch(() => {
+    res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Internal server error');
+  });
 });
 
 function getLanIps() {
@@ -1232,4 +1274,34 @@ server.listen(PORT, HOST, () => {
   } else {
     console.log('Insecure TLS mode is disabled (strict certificate validation).');
   }
+
+  const httpsOptions = tryLoadHttpsOptions();
+  if (!httpsOptions) {
+    console.log(`HTTPS disabled: cert/key not found at ${HTTPS_CERT_FILE} and ${HTTPS_KEY_FILE}`);
+    return;
+  }
+
+  const httpsServer = https.createServer(httpsOptions, (req, res) => {
+    handleRequest(req, res, { redirectToHttps: false }).catch(() => {
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Internal server error');
+    });
+  });
+
+  httpsServer.listen(HTTPS_PORT, HOST, () => {
+    console.log(`HTTPS server running on https://localhost:${HTTPS_PORT}`);
+    for (const ip of ips) {
+      console.log(`LAN access TLS: https://${ip}:${HTTPS_PORT}`);
+    }
+    if (FORCE_HTTPS) {
+      server.removeAllListeners('request');
+      server.on('request', (req, res) => {
+        handleRequest(req, res, { redirectToHttps: true }).catch(() => {
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Internal server error');
+        });
+      });
+      console.log('HTTP -> HTTPS redirect is enabled.');
+    }
+  });
 });

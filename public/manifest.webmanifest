@@ -1,0 +1,18 @@
+{
+  "name": "Agence Aix TV Dashboard",
+  "short_name": "Aix TV",
+  "description": "Supervision agence et bornes EV",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0e27",
+  "theme_color": "#0a0e27",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

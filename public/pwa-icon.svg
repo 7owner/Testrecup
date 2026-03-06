@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071b34"/>
+      <stop offset="0.55" stop-color="#0a3b6f"/>
+      <stop offset="1" stop-color="#0a6d9c"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00ff88"/>
+      <stop offset="1" stop-color="#00c8ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="198" r="112" fill="none" stroke="url(#accent)" stroke-width="26"/>
+  <path d="M257 108l-58 102h44l-20 78 90-125h-47l23-55z" fill="#ffffff"/>
+  <rect x="100" y="346" width="312" height="74" rx="24" fill="rgba(10,14,39,0.45)" stroke="#00ff88" stroke-opacity="0.45"/>
+  <text x="256" y="393" font-family="Arial, sans-serif" font-size="44" text-anchor="middle" fill="#ffffff" font-weight="700">AIX TV</text>
+</svg>

@@ -34,6 +34,40 @@ Puis ouvrir:
 
 - `http://localhost:8080`
 
+## Acces HTTPS local (TV)
+
+Le serveur peut aussi exposer `https://` si vous fournissez un certificat:
+
+- Certificat: `certs/localhost-cert.pem`
+- Cle privee: `certs/localhost-key.pem`
+- Port HTTPS: `8443` (override avec `HTTPS_PORT`)
+
+Lancer:
+
+```bash
+node server.js
+```
+
+Si les fichiers existent, le serveur affiche:
+
+- `https://localhost:8443`
+- `https://<IP_LAN>:8443`
+
+Variables utiles:
+
+- `HTTPS_CERT_FILE` (chemin cert)
+- `HTTPS_KEY_FILE` (chemin key)
+- `HTTPS_PORT` (port TLS, defaut `8443`)
+- `FORCE_HTTPS=1` (redirige `http://` vers `https://`)
+
+Exemple PowerShell:
+
+```powershell
+$env:HTTPS_PORT=8443
+$env:FORCE_HTTPS=1
+node server.js
+```
+
 ## Mode token direct
 
 Dans le formulaire:
@@ -111,7 +145,7 @@ Lecture RS485 fixe utilisee par l'index (si disponible):
 - adresse energie: `0xB02A` (override: `IRVE_RS485_ENERGY_REGISTER`)
 - format serie: `8N1` (data bits 8, parity none, stop bit 1)
 
-## Certificat TLS auto-signe
+## Certificat TLS auto-signe (sortie EVCE2)
 
 Si votre EVCE2 utilise HTTPS avec certificat auto-signe, lancez:
 
@@ -133,4 +167,3 @@ $env:ALLOW_INSECURE_TLS=1; node server.js
 - `public/api.js`: client frontend vers backend
 - `public/charts.js`: creation/mise a jour des graphes
 - `public/app.js`: orchestration UI + polling + transformations data
-"# Testrecup" 

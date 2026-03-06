@@ -1132,15 +1132,15 @@ async function loadAgencyInfoFromBackend() {
 
 function renderAgencyInfo(info) {
   if (!elements.agencyDisplay) return;
-  const welcomeMessage = String(info?.welcomeMessage || '').trim() || 'Bonjour et bienvenue chez nous.';
+  const welcomeMessage = String(info?.welcomeMessage || '').trim() || 'Bonjour';
   const eventsTextRaw = String(info?.eventsText || '').trim();
   const notes = String(info?.notes || '').trim();
   const publicUrl = String(info?.publicUrl || '').trim() || window.location.origin;
   const openTime = String(info?.openTime || '07:00');
   const closeTime = String(info?.closeTime || '20:00');
   const events = parseAgencyEvents(eventsTextRaw, notes);
-  const eventLines = events.length ? events : ['Aucun evenement renseigne pour le moment.'];
-  const lines = [welcomeMessage, ...eventLines];
+  const mainInfoLine = events[0] || notes || 'Scanner le QR code pour plus d info';
+  const lines = [welcomeMessage, mainInfoLine];
   const linesHtml = lines
     .map((line, i) => `<li class="agency-line" style="--line-order:${i}">${escapeHtml(line)}</li>`)
     .join('');
@@ -1173,7 +1173,7 @@ function renderAgencyInfo(info) {
   if (elements.tvUrl) elements.tvUrl.textContent = publicUrl;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(publicUrl)}`;
   if (elements.qrImage) elements.qrImage.src = qrUrl;
-  if (elements.qrLabel) elements.qrLabel.textContent = publicUrl;
+  if (elements.qrLabel) elements.qrLabel.textContent = 'Scanner pour plus d info';
 }
 
 function parseAgencyEvents(eventsTextRaw, notes) {

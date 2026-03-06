@@ -114,23 +114,27 @@
         <div class="agency-grid">
           <div>
             <div class="agency-display" id="agency-display">Agence non renseignee</div>
-            <div class="accidents-card" id="accidents-card">
-              <div class="accidents-title">Nombre d'accidents par metier</div>
-              <div class="accidents-chart-wrap">
-                <canvas id="accidentsChart"></canvas>
+            <div class="agency-bottom-split">
+              <div class="accidents-card" id="accidents-card">
+                <div class="accidents-title">Nombre d'accidents par metier</div>
+                <div class="accidents-main">
+                  <div class="accidents-chart-wrap">
+                    <canvas id="accidentsChart"></canvas>
+                  </div>
+                  <div class="accidents-kpis">
+                    <div class="accident-kpi"><span>CVC</span><b id="accident-cvc">0</b></div>
+                    <div class="accident-kpi"><span>Defense</span><b id="accident-defense">0</b></div>
+                    <div class="accident-kpi"><span>CFO</span><b id="accident-cfo">0</b></div>
+                    <div class="accident-kpi"><span>CFA</span><b id="accident-cfa">0</b></div>
+                  </div>
+                </div>
               </div>
-              <div class="accidents-kpis">
-                <div class="accident-kpi"><span>CVC</span><b id="accident-cvc">0</b></div>
-                <div class="accident-kpi"><span>Defense</span><b id="accident-defense">0</b></div>
-                <div class="accident-kpi"><span>CFO</span><b id="accident-cfo">0</b></div>
-                <div class="accident-kpi"><span>CFA</span><b id="accident-cfa">0</b></div>
+              <div class="qr-box">
+                <div class="qr-title">QR Code</div>
+                <img id="agency-qr" alt="QR" />
+                <div id="qr-label" class="qr-label mono">--</div>
               </div>
             </div>
-          </div>
-          <div class="qr-box">
-            <div class="qr-title">QR Code</div>
-            <img id="agency-qr" alt="QR" />
-            <div id="qr-label" class="qr-label mono">--</div>
           </div>
         </div>
       </section>

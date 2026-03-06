@@ -160,7 +160,7 @@ function startPanelSwitcher() {
     showStations = !showStations;
     elements.panelStations.classList.toggle('panel-switched-out', !showStations);
     elements.panelAgency.classList.toggle('panel-switched-out', showStations);
-  }, 5000);
+  }, 10000);
 }
 
 function bindEvents() {

@@ -24,9 +24,9 @@ body {
 }
 
 .tv-scale-60 .layout {
-  width: calc(100vw / 0.6);
-  height: calc(100vh / 0.6);
-  transform: scale(0.6);
+  width: calc(100vw / 0.55);
+  height: calc(100vh / 0.55);
+  transform: scale(0.55);
   transform-origin: top left;
 }
 
@@ -845,6 +845,16 @@ canvas { width: 100% !important; height: 100% !important; }
   overflow: hidden;
 }
 .agency-display strong { color: rgba(255,255,255,0.92); }
+.agency-bottom-split {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+#panel-agency .agency-bottom-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+}
 
 .agency-cinematic {
   position: relative;
@@ -884,20 +894,12 @@ canvas { width: 100% !important; height: 100% !important; }
 }
 
 .accidents-card {
-  margin-top: 12px;
   border: 1px solid rgba(255, 90, 122, 0.28);
   border-radius: 12px;
   padding: 12px;
   background: linear-gradient(120deg, rgba(64, 20, 36, 0.62), rgba(34, 23, 58, 0.68));
   overflow: hidden;
   min-width: 0;
-}
-.accidents-split {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 10px;
-  align-items: stretch;
-  padding: 0 4px 4px;
 }
 .accidents-main {
   min-width: 0;
@@ -971,9 +973,6 @@ canvas { width: 100% !important; height: 100% !important; }
   align-content: center;
   min-width: 0;
   overflow: hidden;
-}
-.qr-in-accidents {
-  min-height: 100%;
 }
 .qr-title { font-family: 'JetBrains Mono', monospace; font-weight: 900; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.9); }
 #agency-qr {
@@ -1175,7 +1174,7 @@ input:focus, select:focus {
   .panel-xl { grid-column: span 1; grid-row: span 1; }
   .panel-agency-center { grid-column: span 1; }
   .agency-grid { grid-template-columns: 1fr; }
-  .accidents-split { grid-template-columns: 1fr; }
+  .agency-bottom-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .admin-grid { grid-template-columns: 1fr; }
   .energy-month-row { grid-template-columns: 1fr; }
   .ssi-orbit { top: -36px; width: 134px; height: 134px; }

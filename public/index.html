@@ -85,17 +85,19 @@
       <div class="chart-container year-chart"><canvas id="yearChart"></canvas></div>
     </section>
 
-    <!-- BORNES (top activite) -->
-    <section class="panel panel-large-h panel-stations-map panel-switchable" id="panel-stations">
-      <div class="panel-title">Bornes de charge</div>
-      <div class="station-map-wrap">
-        <div class="station-layout" id="station-layout" aria-label="Cartographie des bornes"></div>
-        <div class="station-legend">
-          <div class="legend-item"><span class="legend-dot busy"></span>Non connecte</div>
+    <!-- SLOT SWITCH: BORNES / AGENCE (meme position) -->
+    <section class="panel-switch-slot panel-large-h panel-stations-map" id="panel-switch-slot">
+      <!-- BORNES (top activite) -->
+      <section class="panel panel-stations-map panel-switchable" id="panel-stations">
+        <div class="panel-title">Bornes de charge</div>
+        <div class="station-map-wrap">
+          <div class="station-layout" id="station-layout" aria-label="Cartographie des bornes"></div>
+          <div class="station-legend">
+            <div class="legend-item"><span class="legend-dot busy"></span>Non connecte</div>
+          </div>
         </div>
-      </div>
-      <!-- Compteurs actives/disponibles retires pour laisser toute la place a la cartographie -->
-    </section>
+        <!-- Compteurs actives/disponibles retires pour laisser toute la place a la cartographie -->
+      </section>
 
     <!--
     REPARTITION ZONES (temporairement desactivee)
@@ -106,31 +108,32 @@
     </section>
     -->
 
-    <!-- AGENCE -->
-    <section class="panel panel-xl panel-agency-center panel-switchable panel-switched-out" id="panel-agency">
-      <div class="panel-title">Informations agence</div>
-      <div class="agency-grid">
-        <div>
-          <div class="agency-display" id="agency-display">Agence non renseignee</div>
-          <div class="accidents-card" id="accidents-card">
-            <div class="accidents-title">Nombre d'accidents par metier</div>
-            <div class="accidents-chart-wrap">
-              <canvas id="accidentsChart"></canvas>
-            </div>
-            <div class="accidents-kpis">
-              <div class="accident-kpi"><span>CVC</span><b id="accident-cvc">0</b></div>
-              <div class="accident-kpi"><span>Defense</span><b id="accident-defense">0</b></div>
-              <div class="accident-kpi"><span>CFO</span><b id="accident-cfo">0</b></div>
-              <div class="accident-kpi"><span>CFA</span><b id="accident-cfa">0</b></div>
+      <!-- AGENCE -->
+      <section class="panel panel-switchable panel-switched-out" id="panel-agency">
+        <div class="panel-title">Informations agence</div>
+        <div class="agency-grid">
+          <div>
+            <div class="agency-display" id="agency-display">Agence non renseignee</div>
+            <div class="accidents-card" id="accidents-card">
+              <div class="accidents-title">Nombre d'accidents par metier</div>
+              <div class="accidents-chart-wrap">
+                <canvas id="accidentsChart"></canvas>
+              </div>
+              <div class="accidents-kpis">
+                <div class="accident-kpi"><span>CVC</span><b id="accident-cvc">0</b></div>
+                <div class="accident-kpi"><span>Defense</span><b id="accident-defense">0</b></div>
+                <div class="accident-kpi"><span>CFO</span><b id="accident-cfo">0</b></div>
+                <div class="accident-kpi"><span>CFA</span><b id="accident-cfa">0</b></div>
+              </div>
             </div>
           </div>
+          <div class="qr-box">
+            <div class="qr-title">QR Code</div>
+            <img id="agency-qr" alt="QR" />
+            <div id="qr-label" class="qr-label mono">--</div>
+          </div>
         </div>
-        <div class="qr-box">
-          <div class="qr-title">QR Code</div>
-          <img id="agency-qr" alt="QR" />
-          <div id="qr-label" class="qr-label mono">--</div>
-        </div>
-      </div>
+      </section>
     </section>
 
     <!--

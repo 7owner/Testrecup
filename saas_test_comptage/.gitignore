@@ -1,0 +1,58 @@
+# --- environnements ---
+.venv/
+*/.venv/
+__pycache__/
+*.pyc
+
+# --- donnees clients : ne JAMAIS versionner ---
+PLANS_COMPLETS_NEW/
+MC2 (ETUDES A FAIRE)/
+ACCES*.xlsx
+
+# --- poids de modeles et sorties d'entrainement (centaines de Mo) ---
+*.pth
+*.pt
+*.onnx
+Test_No3/resultat_fine_tunning/
+training_runs/
+models/
+instance_seg/runs/
+instance_seg/outputs/
+instance_seg/data/
+
+# --- datasets generes (reproductibles depuis les DWG) ---
+Test_No3/3e_dataset/
+Test_No3/4e_dataset/
+Test_No3/colab/coco_colab/
+Test_No3/colab/*.zip
+Test_No3/_cache/
+Test_No3/out/
+datasets/
+prepared_data/
+rendered_cci/
+split_output/
+
+# --- caches et sorties intermediaires ---
+plan_takeoff/cache/
+plan_takeoff/rapport/
+plan_takeoff/rapport_pdf/
+plan_takeoff/tools/
+hybrid_runs/
+hybrid_feedback/
+hybrid_viewer/
+unsupervised_kmeans_lab/
+legend_zero/runs/
+legend_templates_example/
+exemples/
+exemples - Copie/
+tmp_*/
+plan_counter_ui/sessions/
+
+# --- binaires lourds isoles ---
+*.zip
+*.dwg
+*.pdf
+*.h5
+*.hdf5
+*.jpg
+*.jpeg

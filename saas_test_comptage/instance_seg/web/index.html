@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Instance Seg Dashboard</title>
+  <link rel="stylesheet" href="./styles.css?v=20260519-2">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="panel hero">
+        <h1>Plan -> Legende -> Recherche</h1>
+        <p>Teste directement un PDF : extrais la legende, selectionne un symbole, puis verifie s'il est retrouve dans le plan.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Plan PDF</h2>
+        <label class="field">
+          <span>PDF</span>
+          <select id="pdfSelect"></select>
+        </label>
+        <label class="field">
+          <span>Pages</span>
+          <input id="pagesInput" type="text" value="1" placeholder="1 ou 1,3-5">
+        </label>
+        <button id="extractButton" class="button primary" type="button">Extraire la legende</button>
+        <p><a class="button" href="./annotate.html">Annoter les masques COCO</a></p>
+      </div>
+
+      <div class="panel">
+        <h2>Comparaison runs</h2>
+        <label class="field">
+          <span>Run A</span>
+          <select id="runA"></select>
+        </label>
+        <label class="field">
+          <span>Run B</span>
+          <select id="runB"></select>
+        </label>
+        <button id="compareButton" class="button" type="button">Comparer</button>
+      </div>
+
+      <div class="panel">
+        <h2>Statut</h2>
+        <div id="status" class="empty">Choisis un PDF puis lance l'extraction.</div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <section class="panel">
+        <h2>Legend Preview</h2>
+        <div id="legendPreview" class="preview-wrap empty">Aucun apercu.</div>
+      </section>
+
+      <section class="panel">
+        <h2>Objets de legende</h2>
+        <div id="objectsGrid" class="objects-grid"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Resultat de recherche dans le plan</h2>
+        <div id="matchResult" class="empty">Selectionne un objet puis lance une recherche.</div>
+      </section>
+
+      <section class="top-grid">
+        <div class="panel">
+          <h2>Etat Instance Seg</h2>
+          <div id="runtimeCards" class="cards"></div>
+        </div>
+        <div class="panel">
+          <h2>Dataset COCO</h2>
+          <div id="datasetCards" class="cards"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Impact comparatif</h2>
+        <div id="compareResult" class="empty">Selectionne deux runs puis clique sur comparer.</div>
+      </section>
+
+      <section class="panel">
+        <h2>Ameliorations</h2>
+        <div id="improvements" class="stack"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Runs trouves</h2>
+        <div id="runs" class="stack"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Sorties Instance Seg</h2>
+        <div id="outputs" class="stack"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js?v=20260519-2"></script>
+</body>
+</html>

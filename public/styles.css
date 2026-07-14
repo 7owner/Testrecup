@@ -98,6 +98,36 @@ body::before {
   gap: 14px;
 }
 
+.wh-logo-slot {
+  position: absolute;
+  left: 24px;
+  bottom: 16px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.wh-logo {
+  height: 34px;
+  width: auto;
+  object-fit: contain;
+  opacity: 0.92;
+}
+
+.wh-logo-slot {
+  position: absolute;
+  left: 24px;
+  bottom: 16px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.wh-logo {
+  height: 34px;
+  width: auto;
+  object-fit: contain;
+  opacity: 0.92;
+}
+
 .wh-brand h1 {
   margin: 0;
   font-family: 'Syne', sans-serif;

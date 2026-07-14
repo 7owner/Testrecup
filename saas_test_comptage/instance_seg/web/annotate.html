@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Annotation COCO</title>
+  <link rel="stylesheet" href="./styles.css?v=20260519-annotate-1">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="panel hero">
+        <h1>Annotation des masques</h1>
+        <p>Dessine les polygones d'instances sur les tuiles COCO, choisis la categorie, puis sauvegarde dans le fichier annotations.json.</p>
+      </div>
+
+      <div class="panel">
+        <label class="field">
+          <span>Split</span>
+          <select id="splitSelect">
+            <option value="train">train</option>
+            <option value="val">val</option>
+            <option value="test">test</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Image</span>
+          <select id="imageSelect"></select>
+        </label>
+        <div class="actions">
+          <button id="prevButton" class="button" type="button">Precedent</button>
+          <button id="nextButton" class="button" type="button">Suivant</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label class="field">
+          <span>Categorie</span>
+          <select id="categorySelect"></select>
+        </label>
+        <div class="actions">
+          <button id="finishPolygonButton" class="button primary" type="button">Terminer polygone</button>
+          <button id="undoPointButton" class="button" type="button">Annuler point</button>
+        </div>
+        <div class="actions">
+          <button id="clearDraftButton" class="button" type="button">Effacer brouillon</button>
+          <button id="saveButton" class="button primary" type="button">Sauvegarder image</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Progression</h2>
+        <div id="progress" class="empty">Chargement...</div>
+      </div>
+
+      <div class="panel">
+        <h2>Conseils</h2>
+        <ol class="steps">
+          <li>Clique pour poser les sommets.</li>
+          <li>Termine le polygone apres au moins 3 points.</li>
+          <li>Supprime une annotation si elle est mauvaise.</li>
+          <li>Sauvegarde avant de changer d'image.</li>
+        </ol>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <section class="panel">
+        <h2>Tuile courante</h2>
+        <div id="canvasWrap" class="canvas-wrap">
+          <canvas id="annotCanvas"></canvas>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Annotations de l'image</h2>
+        <div id="annotationList" class="stack"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./annotate.js?v=20260519-annotate-1"></script>
+</body>
+</html>

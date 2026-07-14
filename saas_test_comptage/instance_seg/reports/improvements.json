@@ -1,0 +1,58 @@
+{
+  "items": [
+    {
+      "id": "instance_seg_base",
+      "date": "2026-05-18",
+      "status": "done",
+      "area": "architecture",
+      "title": "Nouveau socle de segmentation d'instances",
+      "change": "Création d'un pipeline séparé de l'ancien classifieur de crops avec dataset COCO, entraînement Mask R-CNN et inférence par tuiles.",
+      "impact": "Le projet peut maintenant évoluer vers une vraie segmentation d'instances au lieu d'un matching heuristique ou d'une classification de crops."
+    },
+    {
+      "id": "pdf_tiling",
+      "date": "2026-05-18",
+      "status": "done",
+      "area": "data",
+      "title": "Préparation PDF vers tuiles COCO",
+      "change": "Ajout du script de rasterisation PDF -> tuiles avec recouvrement et initialisation d'un annotations.json.",
+      "impact": "Les plans deviennent annotables proprement pour l'instance segmentation, avec un format exploitable en entraînement."
+    },
+    {
+      "id": "categories_seed",
+      "date": "2026-05-19",
+      "status": "done",
+      "area": "labels",
+      "title": "Template initial de 58 catégories",
+      "change": "Création d'un fichier de catégories COCO de départ dérivé des légendes déjà extraites.",
+      "impact": "Le dataset a maintenant une nomenclature exploitable pour commencer l'annotation sans repartir d'une feuille blanche."
+    },
+    {
+      "id": "runtime_deps",
+      "date": "2026-05-19",
+      "status": "done",
+      "area": "runtime",
+      "title": "Installation de torchvision",
+      "change": "Installation et validation de torchvision avec le Python 3.12 du projet.",
+      "impact": "Le modèle Mask R-CNN peut maintenant être instancié et entraîné localement sur cette machine."
+    },
+    {
+      "id": "dataset_bootstrap",
+      "date": "2026-05-19",
+      "status": "done",
+      "area": "dataset",
+      "title": "Bootstrap du dataset train",
+      "change": "Génération initiale de tuiles train depuis un PDF FAU page 1.",
+      "impact": "Le chantier d'annotation peut commencer immédiatement sur 44 tuiles réelles."
+    },
+    {
+      "id": "pending_masks",
+      "date": "2026-05-19",
+      "status": "todo",
+      "area": "annotation",
+      "title": "Masques d'instances à annoter",
+      "change": "Les fichiers COCO existent mais les annotations d'instances ne sont pas encore renseignées.",
+      "impact": "Pas d'entraînement utile tant que les polygones ou masques de vérité terrain ne sont pas créés."
+    }
+  ]
+}

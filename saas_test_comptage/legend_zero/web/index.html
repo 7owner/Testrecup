@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Legend Zero</title>
+  <link rel="stylesheet" href="./styles.css?v=20260422-kmeans-strict">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="panel hero">
+        <h1>Legend Zero</h1>
+        <p>Base propre du projet. Etape 1 : extraire les objets situes sous une zone "LEGENDE", puis les visualiser et les exporter.</p>
+      </div>
+
+      <div class="panel">
+        <label class="field">
+          <span>Uploader des PDF</span>
+          <input id="uploadInput" type="file" accept=".pdf,application/pdf" multiple>
+        </label>
+        <button id="uploadButton" class="button" type="button">Ajouter les PDF</button>
+      </div>
+
+      <div class="panel">
+        <label class="field">
+          <span>Recherche PDF</span>
+          <input id="searchInput" type="text" placeholder="Nom du PDF ou dossier">
+        </label>
+      </div>
+
+      <div class="panel">
+        <h2>PDF</h2>
+        <div id="pdfList" class="list"></div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="toolbar">
+        <div>
+          <strong id="title">Aucun PDF selectionne</strong>
+          <div id="meta" class="muted">Choisis un PDF puis lance l'extraction de legende.</div>
+        </div>
+        <div class="toolbar-actions">
+          <label class="field compact">
+            <span>Pages</span>
+            <input id="pagesInput" type="text" value="1" placeholder="Ex: 1 ou 1,3-5">
+          </label>
+          <button id="extractButton" class="button primary" type="button">Extraire la legende</button>
+          <button id="vectorButton" class="button" type="button">Inspecter vecteurs</button>
+        </div>
+      </header>
+
+      <section class="content-grid">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Resume</h2>
+            <a id="jsonLink" class="button ghost hidden" target="_blank" rel="noreferrer">Exporter JSON</a>
+          </div>
+          <div id="summary" class="summary-grid">
+            <div class="summary-card"><span>PDF</span><strong>0</strong></div>
+            <div class="summary-card"><span>Page legende</span><strong>0</strong></div>
+            <div class="summary-card"><span>Objets</span><strong>0</strong></div>
+          </div>
+          <div id="status" class="muted status">Aucune extraction lancee.</div>
+        </div>
+
+        <div class="panel">
+          <h2>Apercu page legende</h2>
+          <div id="previewWrap" class="preview-wrap empty">Aucun apercu</div>
+        </div>
+
+        <div class="panel full-width">
+          <h2>Objets detectes</h2>
+          <div id="objectsGrid" class="objects-grid"></div>
+        </div>
+
+        <div class="panel full-width">
+          <h2>Recherche plan</h2>
+          <div id="matchContent" class="match-content empty">Selectionne un objet puis lance sa recherche.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js?v=20260422-kmeans-strict"></script>
+</body>
+</html>

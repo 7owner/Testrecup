@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compteur de plan</title>
+  <link rel="stylesheet" href="./plan_counter.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="panel">
+        <h1>Compteur de plan</h1>
+        <p class="muted">Local uniquement. Charge un plan image et selectionne les elements a compter.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Sources</h2>
+        <label class="field">
+          <span>Plan image</span>
+          <input id="planImageInput" type="file" accept=".png,.jpg,.jpeg,.webp">
+        </label>
+        <label class="field">
+          <span>Labels JSON</span>
+          <input id="labelsFileInput" type="file" accept=".json">
+        </label>
+        <label class="field">
+          <span>Detections JSON</span>
+          <input id="detectionsFileInput" type="file" accept=".json">
+        </label>
+        <label class="field">
+          <span>Session JSON</span>
+          <input id="sessionFileInput" type="file" accept=".json">
+        </label>
+      </div>
+
+      <div class="panel">
+        <h2>Queue annotation</h2>
+        <label class="field">
+          <span>Queue JSON</span>
+          <input id="queueFileInput" type="file" accept=".json">
+        </label>
+        <label class="field">
+          <span>Dossier images</span>
+          <input id="imageFolderInput" type="file" accept=".png,.jpg,.jpeg,.webp" webkitdirectory directory multiple>
+        </label>
+        <div class="button-grid queue-actions">
+          <button id="prevQueueButton" type="button">Image precedente</button>
+          <button id="nextQueueButton" type="button">Image suivante</button>
+        </div>
+        <div id="queueInfo" class="queue-info muted">Aucune queue chargee.</div>
+      </div>
+
+      <div class="panel">
+        <h2>Etiquettes</h2>
+        <div class="inline-controls">
+          <input id="newLabelInput" type="text" placeholder="Ex: prise_rj45">
+          <button id="addLabelButton" type="button">Ajouter</button>
+        </div>
+        <div id="labelList" class="label-list"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Actions</h2>
+        <div class="button-grid">
+          <button id="exportSessionButton" type="button">Exporter session</button>
+          <button id="exportAndNextButton" type="button">Exporter et suivante</button>
+          <button id="clearCurrentButton" type="button">Effacer selection</button>
+          <button id="clearAllButton" type="button">Tout effacer</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspace-toolbar">
+        <div>
+          <strong id="activeLabelName">Aucune etiquette selectionnee</strong>
+          <div class="muted" id="statusLine">Charge un plan, puis choisis ce que tu veux compter.</div>
+          <div class="muted" id="sourceLine"></div>
+        </div>
+        <div class="toolbar-controls">
+          <label>
+            Zoom
+            <input id="zoomRange" type="range" min="20" max="300" value="100">
+          </label>
+          <span id="zoomValue">100%</span>
+        </div>
+      </header>
+
+      <section class="canvas-panel">
+        <div id="canvasContainer" class="canvas-container">
+          <canvas id="planCanvas"></canvas>
+          <div id="emptyState" class="empty-state">Charge une image de plan pour commencer.</div>
+        </div>
+      </section>
+
+      <section class="legend-panel">
+        <div class="panel">
+          <h2>Resume</h2>
+          <div id="summaryList" class="summary-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./plan_counter.js"></script>
+</body>
+</html>

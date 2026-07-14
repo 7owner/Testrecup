@@ -1,0 +1,28 @@
+{
+  "exclude_block_patterns": [
+    "^\\*Model_Space$",
+    "^\\*Paper_Space",
+    "\\|",
+    "FLECHE",
+    "CARTOUCHE",
+    "NORD",
+    "ECHELLE",
+    "^A\\$C?_?TITRE",
+    "^_?Arch",
+    "GRILLE",
+    "AXE "
+  ],
+  "exclude_layer_patterns": [
+    "CARTOUCHE",
+    "COTATION",
+    "DEFPOINTS",
+    "\\|"
+  ],
+  "legend_anchor_words": ["LEGENDE", "LÉGENDE", "LEGENDES"],
+  "floor_title_patterns": [
+    "\\bRDC\\b", "\\bRDJ\\b", "\\bR\\s*\\+\\s*\\d\\b", "\\bR\\s*-\\s*\\d\\b",
+    "SOUS[- ]SOL", "COMBLES", "TOITURE", "\\bTOIT\\b", "NIVEAU\\s*\\d"
+  ],
+  "dpi_overlay": 0,
+  "cache_dir": "cache"
+}

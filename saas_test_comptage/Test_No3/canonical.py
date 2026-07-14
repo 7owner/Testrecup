@@ -15,7 +15,8 @@ _EXCLUDE = re.compile(
     r"Groupe-\d|^DAIKIN$|^code alarme$|REPROGRAPHIE|^R-\d|PHOTOCOPIEUR|"
     r"Ecran TV|Ecran de supervision|^Courant faible$|"
     r"^S.curit. incendie$|^Eclairage$|RESERVATION|RACCOREDEMENT|^SR$|^BP$|"
-    r"Ecran de sup",
+    r"Ecran de sup|"
+    r"goulotte|chemin de c.ble",          # classes LINEAIRES : jamais comptees
     re.IGNORECASE)
 
 # (motif, label canonique) — ORDRE IMPORTANT (specifique -> generique)
@@ -39,8 +40,12 @@ _RULES = [
     (r"intrusion|anti.?intrus|centrale anti|clavier.*(alarme|service)|"
      r"contacteur intrusion|controle intrusion", "INTRUSION"),
     # ---- Videosurveillance / interphonie / AV ----
+    # PRISE_RJ45 passe AVANT CAMERA : "PRISE RJ45 CAMERA DE SURVEILLANCE" est une PRISE,
+    # pas une camera. La regle `cam.ra` la volait (shadowing).
+    (r"rj45|prise standard rj", "PRISE_RJ45"),
     (r"cam.ra|camera", "CAMERA"),
-    (r"interphon|combine interieur|appel eas|platine de rue|poste viso|videophone", "INTERPHONE"),
+    (r"interphon|combine interieur|appel eas|platine de rue|poste viso|videophone|"
+     r"vid.oportier|visiophon", "INTERPHONE"),
     (r"lecteur de b|bouton poussoir|deverrouillage|clavier", "CONTROLE_ACCES"),
     # NB : PAS "baie sono" ici -- une baie est un rack, pas un haut-parleur.
     # Elle est reclamee plus bas par BAIE_VDI (qui ne la voyait jamais : shadowing).
@@ -54,12 +59,12 @@ _RULES = [
     (r"poste de travail", "POSTE_TRAVAIL"),
     (r"nourrice", "NOURRICE"),
     (r"baie (vdi|sono)|vdi ?- ?baie|^baie", "BAIE_VDI"),   # capte aussi "Baie 42U"
-    (r"rj45|prise standard rj", "PRISE_RJ45"),
+    # NB : la regle rj45 est remontee plus haut (avant CAMERA) -- voir commentaire la-bas.
     (r"hdmi", "PRISE_HDMI"),
     (r"coaxial|coax", "PRISE_COAX"),
     (r"\bwifi\b", "BORNE_WIFI"),
     # ---- Eclairage ----
-    (r"baes|bloc autonome.*eclairage|bloc d.eclairage securite|bapi", "BAES"),
+    (r"baes|bloc autonome.*eclairage|bloc.*eclairage.*s.curit|bapi", "BAES"),
     (r"hublot", "HUBLOT"),
     (r"applique", "APPLIQUE"),
     (r"r.glette|reglette|tube ?led|ruban led|bandeau", "REGLETTE"),
@@ -70,7 +75,7 @@ _RULES = [
      r"brasseur|park etanche|variateur|int.*gradation|interrupteur|"
      r"simple allumage|va.et.vient", "LUMINAIRE"),
     # ---- CFO puissance ----
-    (r"tableau divisionnaire|tgbt|coffret", "TABLEAU_ELEC"),
+    (r"tableau divisionnaire|tableau g.n.ral|tgbt|coffret", "TABLEAU_ELEC"),
     (r"coupure d.urgence|arr.t d.urgence|arret d urgence", "COUPURE_URGENCE"),
     (r"alim|autotransfo|24v", "ALIMENTATION"),
     (r"prise de courant|^pc[\s\d]|standard 16a|p\+n\+t|prise standard|"
@@ -83,15 +88,22 @@ _RULES = [
 _COMPILED = [(re.compile(p, re.IGNORECASE), lbl) for p, lbl in _RULES]
 
 
-def canon(name: str):
-    """Nom brut -> label canonique, ou None si a exclure."""
+def canon(name: str, strict: bool = False):
+    """Nom brut ou libelle de legende -> label canonique, ou None.
+
+    strict=False (defaut) : ce qui ne matche aucune regle tombe dans AUTRE_SYMBOLE.
+        C'est ce que le DATASET attend -- AUTRE_SYMBOLE est une classe entrainee.
+    strict=True (chemin LEGENDE) : renvoie None. Une entree de legende non reconnue
+        doit etre SIGNALEE a l'utilisateur ("je ne sais pas compter ca"), pas rangee
+        silencieusement dans un fourre-tout.
+    """
     s = (name or "").strip()
     if not s or _EXCLUDE.search(s):
         return None
     for rx, lbl in _COMPILED:
         if rx.search(s):
             return lbl
-    return "AUTRE_SYMBOLE"   # non classe (rare) : regroupe, pas perdu
+    return None if strict else "AUTRE_SYMBOLE"
 
 
 if __name__ == "__main__":

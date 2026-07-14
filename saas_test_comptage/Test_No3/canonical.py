@@ -42,10 +42,16 @@ _RULES = [
     # ---- Videosurveillance / interphonie / AV ----
     # Une prise RJ45 DE camera est une PRISE, pas une camera : son symbole est le carre
     # de prise RJ45 (7,8 x 7,7 px, elongation 1,02), pas le symbole de camera
-    # (12,9 x 10,1, elongation 1,28). Regle ETROITE, volontairement : remonter la regle
-    # rj45 generale ici lui ferait voler BAIE_VDI, NOURRICE, POSTE_TRAVAIL, CONTROLE_ACCES,
-    # HAUT_PARLEUR, HORLOGE et VIDEO_PROJ ("Baie VDI RJ45", "Nourrice VDI RJ45"...).
-    (r"rj45.*cam.ra|cam.ra.*rj45", "PRISE_RJ45"),
+    # (12,9 x 10,1, elongation 1,28).
+    # Regle ETROITE sur DEUX axes, volontairement :
+    #  - elle exige rj45 ET camera : remonter la regle rj45 generale ici lui ferait voler
+    #    BAIE_VDI, NOURRICE, POSTE_TRAVAIL, CONTROLE_ACCES, HAUT_PARLEUR, HORLOGE et
+    #    VIDEO_PROJ ("Baie VDI RJ45", "Nourrice VDI RJ45"...) ;
+    #  - elle est ANCREE sur "prise" : sans cette ancre, elle volerait les VRAIES cameras
+    #    dont le libelle mentionne le raccordement reseau ("Camera IP RJ45", "Camera dome
+    #    PoE RJ45" -- vocabulaire courant en CFA), qui dessinent bien le symbole de camera.
+    #    Les deux libelles du dataset commencent litteralement par "PRISE RJ45".
+    (r"prise.*(rj45.*cam.ra|cam.ra.*rj45)", "PRISE_RJ45"),
     (r"cam.ra|camera", "CAMERA"),
     (r"interphon|combine interieur|appel eas|platine de rue|poste viso|videophone|"
      r"vid.oportier|visiophon", "INTERPHONE"),

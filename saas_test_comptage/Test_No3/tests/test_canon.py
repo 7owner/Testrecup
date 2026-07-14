@@ -89,3 +89,18 @@ def test_horloge_rj45_reste_une_horloge():
 
 def test_point_de_raccordement_rj45_video_reste_un_video_proj():
     assert canon("Point de raccordement RJ45 video") == "VIDEO_PROJ"
+
+
+# La regle etroite RJ45+camera est ancree sur "prise" : sans cette ancre, elle capterait
+# aussi les VRAIES cameras dont le libelle mentionne leur raccordement reseau ("Camera IP
+# RJ45" est du vocabulaire courant en CFA). Ce sont des CAMERA, pas des prises.
+def test_camera_ip_rj45_reste_une_camera():
+    assert canon("Caméra IP RJ45") == "CAMERA"
+
+
+def test_camera_dome_poe_rj45_reste_une_camera():
+    assert canon("Caméra dôme PoE RJ45") == "CAMERA"
+
+
+def test_camera_dome_rj45_etanche_reste_une_camera():
+    assert canon("CAMERA DOME RJ45 ETANCHE") == "CAMERA"

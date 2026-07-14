@@ -29,15 +29,36 @@ def test_le_texte_du_plan_a_disparu(legende):
 
 
 def test_les_vraies_entrees_sont_la(legende):
-    labels = {e["label"] for e in legende["entries"]}
-    for vraie in ("Caméra surveillance", "Prise RJ45", "Attente HDMI",
-                  "Flash lumineux d'alarme incendie", "Contacteur intrusion"):
-        assert vraie in labels, f"entree de legende perdue : {vraie!r}"
+    # Recherche par sous-chaine : le libelle complet porte souvent une description
+    # ("Detecteur de presence - 360 / 180 / 90"), et une ligne de continuation fusionnee
+    # rallonge encore le libelle parent.
+    labels = [e["label"] for e in legende["entries"]]
+    for vraie in (
+        # entrees qui survivaient deja
+        "Caméra surveillance", "Prise RJ45", "Attente HDMI",
+        "Flash lumineux d'alarme incendie", "Contacteur intrusion",
+        # entrees perdues par le vol de glyphe (mecanisme A) : un cluster fusionne haut
+        # (#1336 h=38, #1363 h=52) etait rafle par la 1re ligne, les suivantes sortaient
+        # sans candidat et etaient jetees en silence.
+        "Détecteur de présence", "Baie de brassage CFa 42U", "Nourrice RJ",
+        "Alimentation spécifique", "Nourrice PC", "Déclencheur manuel",
+        "Platine vidéoportier", "Arrêt d'urgence",
+        "Attente RJ45 pour borne wifi",
+        # entrees perdues par la coupure sur libelle multi-lignes (mecanisme B)
+        "Bloc d'Eclairage de Sécurité Autonome", "Ecl-type B", "Ecl-type E",
+    ):
+        assert any(vraie in l for l in labels), f"entree de legende perdue : {vraie!r}"
 
 
 def test_le_nombre_d_entrees_est_plausible(legende):
+    # Chiffre MESURE sur ce plan (dump des lignes de libelle groupees par x0), pas estime :
+    # colonne 0 (x0~662) = 21 lignes de legende, colonne 1 (x0~889) = 15 -> 36 lignes.
+    # Deux des 21 sont des lignes de continuation d'un libelle trop long ("recuperee et
+    # source remplacee : LED + DALI" ; "Suspension acoustique MUUTO - Under the belt") :
+    # elles sont fusionnees dans leur libelle parent et ne comptent pas comme entree.
+    # 36 - 2 = 34 entrees attendues. La fourchette laisse +/- 4 de marge, pas 40 %.
     n = len(legende["entries"])
-    assert 15 <= n <= 45, f"{n} entrees ; la legende de ce plan en compte ~25"
+    assert 30 <= n <= 38, f"{n} entrees ; ce plan en compte 34 (21+15 lignes, -2 continuations)"
 
 
 def test_aucune_quantite_inventee(legende):
@@ -48,10 +69,20 @@ def test_aucune_quantite_inventee(legende):
     assert not inventees, f"quantites inventees : {inventees}"
 
 
-def test_chaque_entree_porte_un_gabarit(legende):
+def test_gabarit_valide_ou_absence_signalee(legende):
+    # Nouveau contrat : etre dans une colonne de legende validee PROUVE qu'on est une
+    # entree ; le gabarit est un bonus. extract_page fusionne parfois plusieurs symboles
+    # verticalement voisins en un seul cluster : la ligne qui n'obtient pas de glyphe
+    # propre sort quand meme, avec glyph_bbox=None -- mais elle doit alors etre NOMMEE
+    # dans un warning. Sans gabarit et sans warning = disparition silencieuse = echec.
+    blabla = " ".join(legende["warnings"])
     for e in legende["entries"]:
-        x0, y0, x1, y1 = e["glyph_bbox"]
-        assert x1 > x0 and y1 > y0, f"gabarit degenere pour {e['label']!r}"
+        if e["glyph_bbox"] is None:
+            assert e["label"] in blabla, (
+                f"entree sans gabarit et sans warning qui la nomme : {e['label']!r}")
+        else:
+            x0, y0, x1, y1 = e["glyph_bbox"]
+            assert x1 > x0 and y1 > y0, f"gabarit degenere pour {e['label']!r}"
 
 
 def test_les_entrees_sont_mappees_ou_signalees(legende):

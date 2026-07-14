@@ -58,3 +58,34 @@ def test_mode_strict_ne_change_rien_quand_une_regle_matche():
 def test_mode_strict_conserve_les_exclusions():
     assert canon("A$C1234") is None
     assert canon("A$C1234", strict=True) is None
+
+
+# La regle generale RJ45 ne doit PAS shadower ces sept classes VDI/AV/CONTROLE_ACCES :
+# seule la conjonction etroite "RJ45 + camera" doit devenir PRISE_RJ45 (cf. constat
+# CRITIQUE de la revue du commit b28668f).
+def test_baie_vdi_rj45_reste_une_baie_vdi():
+    assert canon("Baie VDI RJ45") == "BAIE_VDI"
+
+
+def test_nourrice_vdi_rj45_reste_une_nourrice():
+    assert canon("Nourrice VDI RJ45 24 ports") == "NOURRICE"
+
+
+def test_poste_de_travail_rj45_reste_un_poste_de_travail():
+    assert canon("Poste de travail RJ45") == "POSTE_TRAVAIL"
+
+
+def test_lecteur_de_badge_rj45_reste_un_controle_acces():
+    assert canon("Lecteur de badge RJ45") == "CONTROLE_ACCES"
+
+
+def test_haut_parleur_rj45_reste_un_haut_parleur():
+    assert canon("Haut parleur RJ45") == "HAUT_PARLEUR"
+
+
+def test_horloge_rj45_reste_une_horloge():
+    assert canon("Horloge RJ45") == "HORLOGE"
+
+
+def test_point_de_raccordement_rj45_video_reste_un_video_proj():
+    assert canon("Point de raccordement RJ45 video") == "VIDEO_PROJ"

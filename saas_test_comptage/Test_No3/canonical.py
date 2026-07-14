@@ -40,9 +40,12 @@ _RULES = [
     (r"intrusion|anti.?intrus|centrale anti|clavier.*(alarme|service)|"
      r"contacteur intrusion|controle intrusion", "INTRUSION"),
     # ---- Videosurveillance / interphonie / AV ----
-    # PRISE_RJ45 passe AVANT CAMERA : "PRISE RJ45 CAMERA DE SURVEILLANCE" est une PRISE,
-    # pas une camera. La regle `cam.ra` la volait (shadowing).
-    (r"rj45|prise standard rj", "PRISE_RJ45"),
+    # Une prise RJ45 DE camera est une PRISE, pas une camera : son symbole est le carre
+    # de prise RJ45 (7,8 x 7,7 px, elongation 1,02), pas le symbole de camera
+    # (12,9 x 10,1, elongation 1,28). Regle ETROITE, volontairement : remonter la regle
+    # rj45 generale ici lui ferait voler BAIE_VDI, NOURRICE, POSTE_TRAVAIL, CONTROLE_ACCES,
+    # HAUT_PARLEUR, HORLOGE et VIDEO_PROJ ("Baie VDI RJ45", "Nourrice VDI RJ45"...).
+    (r"rj45.*cam.ra|cam.ra.*rj45", "PRISE_RJ45"),
     (r"cam.ra|camera", "CAMERA"),
     (r"interphon|combine interieur|appel eas|platine de rue|poste viso|videophone|"
      r"vid.oportier|visiophon", "INTERPHONE"),
@@ -59,7 +62,7 @@ _RULES = [
     (r"poste de travail", "POSTE_TRAVAIL"),
     (r"nourrice", "NOURRICE"),
     (r"baie (vdi|sono)|vdi ?- ?baie|^baie", "BAIE_VDI"),   # capte aussi "Baie 42U"
-    # NB : la regle rj45 est remontee plus haut (avant CAMERA) -- voir commentaire la-bas.
+    (r"rj45|prise standard rj", "PRISE_RJ45"),
     (r"hdmi", "PRISE_HDMI"),
     (r"coaxial|coax", "PRISE_COAX"),
     (r"\bwifi\b", "BORNE_WIFI"),

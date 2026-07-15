@@ -53,13 +53,29 @@ from pdf_takeoff import extract_page  # noqa: E402
 TOL_X = 1.0             # alignement des libelles, en hauteurs de ligne
 PITCH_LO = 0.6          # pas vertical admis, en fraction du pas median de la colonne
 PITCH_HI = 1.6
-MIN_ROWS = 4            # une colonne de legende a au moins 4 lignes
+MIN_ROWS = 4            # colonne SANS ancre : au moins 4 lignes (la structure doit parler seule)
 MIN_ASPECT = 3.0        # hauteur / largeur : une colonne est une bande VERTICALE
 MIN_GLYPH_RATIO = 0.6   # part des lignes qui doivent porter un glyphe
 CONT_PITCH = 0.6        # sous cette fraction du pas median, la ligne est une CONTINUATION
                         # du libelle precedent, pas une entree (cf. _merge_continuations)
 
+# --- ancre. Mesure du 2026-07-14 : les legendes ROI RENE ne font que 2 a 6 entrees
+# ("LEGENDE VIDEOSURVEILLANCE" + "Camera Dome" + "Camera dome double objectif"), la ou celle
+# de BPCE en a une trentaine. Sur 2 lignes, la STRUCTURE ne dit rien : c'est le titre qui
+# porte l'information. Les seuils structurels (MIN_ROWS, MIN_ASPECT) rejetaient ces legendes
+# en bloc -> 6 plans sur 12 rendaient ZERO entree au banc.
+#
+# L'ancre n'est donc PAS une zone (l'erreur de find_legend_templates, qui prenait une bande
+# jusqu'aux bords de page). C'est un signal qui ASSOUPLIT les seuils d'une colonne deja
+# reperee par alignement. Une colonne sans ancre doit toujours prouver sa structure seule
+# -- BPCE n'a pas d'ancre exploitable et marche tres bien comme ca.
+MIN_ROWS_ANCHORED = 2       # sous une ancre, 2 lignes suffisent
+MIN_GLYPH_RATIO_ANCHORED = 0.5
+ANCHOR_GAP = 8.0            # l'ancre est au-dessus de la 1re ligne, a <= 8 hauteurs de ligne
+ANCHOR_X_TOL = 30.0         # ... et a <= 30 hauteurs de ligne du bord gauche de la colonne
+
 _NUM = re.compile(r"^\d{1,4}$")
+_ANCHOR = re.compile(r"^\s*(l.gendes?|symboles?|nomenclature)\b", re.IGNORECASE)
 _BAD_LABEL = re.compile(
     r"^(ECHELLE|DATE|IND\b|DESIGNATION|DESSINATEUR|OPERATION|NIVEAU|PLAN\b|PLA\b|FAU-"
     r"|ADRESSE|TEL[. ]|FAX|MAIRIE|AGENCE|LOT\b|DOE\b|EXE\b|DCE\b"
@@ -70,17 +86,22 @@ _BAD_LABEL = re.compile(
 # ---------------------------------------------------------------- lignes de texte
 
 def _rows_from_words(words):
-    """Mots PyMuPDF -> (lignes de libelle, lignes purement numeriques).
+    """Mots PyMuPDF -> (lignes de libelle, lignes numeriques, ancres).
 
-    Une ligne = un couple (block, line) de PyMuPDF. Les lignes numeriques sont mises de
-    cote : elles ne deviennent une quantite que si elles forment une VRAIE colonne QTE
-    (cf. _qty_column) -- sinon ce sont des nombres du plan.
+    Une ligne = un couple (block, line) de PyMuPDF.
+
+    - Les lignes numeriques sont mises de cote : elles ne deviennent une quantite que si
+      elles forment une VRAIE colonne QTE (cf. _qty_column) -- sinon ce sont des nombres
+      du plan.
+    - Les titres de legende ("LEGENDE VIDEOSURVEILLANCE", "LEGENDES", "SYMBOLES") ne sont
+      pas des entrees (_BAD_LABEL les ecarte deja) mais ce sont des ANCRES : ils assouplissent
+      les seuils de la colonne qu'ils surplombent (cf. _anchored).
     """
     grouped = defaultdict(list)
     for w in words:
         grouped[(w[5], w[6])].append(w)
 
-    labels, qtys = [], []
+    labels, qtys, anchors = [], [], []
     for ws in grouped.values():
         ws.sort(key=lambda w: w[0])
         text = " ".join(w[4] for w in ws).strip()
@@ -92,11 +113,13 @@ def _rows_from_words(words):
             "x0": min(w[0] for w in ws),
             "h": max(6.0, sum(abs(w[3] - w[1]) for w in ws) / len(ws)),
         }
-        if _NUM.fullmatch(text):
+        if _ANCHOR.match(text):
+            anchors.append(row)
+        elif _NUM.fullmatch(text):
             qtys.append(row)
         elif len(text) >= 3 and not _BAD_LABEL.search(text):
             labels.append(row)
-    return labels, qtys
+    return labels, qtys, anchors
 
 
 # ---------------------------------------------------------------- glyphes
@@ -257,41 +280,69 @@ def _assign_glyphs(runs, clusters):
 # ---------------------------------------------------------------- colonnes
 
 def _group_columns(pairs):
-    """Regroupe les paires (glyphe, libelle) par x0 de LIBELLE."""
+    """Regroupe les paires (glyphe, libelle) par x0 de LIBELLE.
+
+    Tri par x0 puis coupure : on ouvre une nouvelle colonne des que le x0 s'ecarte de plus de
+    TOL_X hauteurs de ligne du PRECEDENT. Stable et independant de l'ordre d'insertion.
+
+    NB : ne PAS regrouper autour d'une moyenne glissante (1re version). La moyenne derivait au
+    fil des ajouts et pouvait s'eloigner de tous les membres ; l'appartenance dependait alors
+    de l'ordre. Mesure du 2026-07-15 (CFA-100 videosurveillance) : les 3 cameras a x0=2887,8
+    se noyaient dans un blob dont la moyenne avait derive, et leur colonne n'existait plus.
+    """
     cols = []
     for p in sorted(pairs, key=lambda p: p["row"]["x0"]):
-        for col in cols:
-            if abs(p["row"]["x0"] - col["x0"]) <= TOL_X * p["row"]["h"]:
-                col["items"].append(p)
-                col["x0"] = sum(q["row"]["x0"] for q in col["items"]) / len(col["items"])
-                break
+        x0 = p["row"]["x0"]
+        if cols and x0 - cols[-1]["x0_last"] <= TOL_X * p["row"]["h"]:
+            cols[-1]["items"].append(p)
+            cols[-1]["x0_last"] = x0
         else:
-            cols.append({"x0": p["row"]["x0"], "items": [p]})
+            cols.append({"x0_last": x0, "items": [p]})
+    for col in cols:
+        col["x0"] = min(p["row"]["x0"] for p in col["items"])
     return cols
 
 
-def _longest_regular_run(items):
-    """Dans une colonne : la plus longue suite de lignes a pas vertical regulier.
+def _regular_runs(items):
+    """Toutes les suites maximales de lignes a pas vertical LOCALEMENT coherent.
 
     C'est l'etape qui COUPE la legende du plan : les textes du plan qui partagent par hasard
     le x0 d'une colonne n'ont aucune raison d'en respecter le pas vertical.
+
+    Une colonne peut contenir DEUX groupes reguliers de pas differents : une vraie legende
+    serree (pas ~37) et des lignes de cartouche au meme x0 mais espacees (~140). Un pas median
+    unique pour toute la colonne (1re version) etait domine par le groupe le plus etale et
+    rejetait le groupe serre comme "hors norme". Mesure du 2026-07-15 (CFA-100) : les 3 cameras
+    (pas 37/38) perdaient face a 3 lignes de cartouche (pas 139/184), le pas median de la
+    colonne etant 139. On renvoie donc TOUS les runs ; c'est la validite + l'ancre qui tranchent.
+
+    Un gap prolonge le run courant s'il reste dans [PITCH_LO, PITCH_HI] x le pas median de CE
+    run (pas de la colonne entiere). Runs de >= 2 lignes seulement.
     """
     items = sorted(items, key=lambda p: p["row"]["y"])
     if len(items) < 2:
-        return items
-    gaps = [items[i + 1]["row"]["y"] - items[i]["row"]["y"] for i in range(len(items) - 1)]
-    med = sorted(gaps)[len(gaps) // 2] or 1.0
-    lo, hi = PITCH_LO * med, PITCH_HI * med
-
-    best, cur = [], [items[0]]
-    for i, g in enumerate(gaps):
-        if lo <= g <= hi:
-            cur.append(items[i + 1])
+        return [items] if items else []
+    runs = []
+    cur = [items[0]]
+    cur_gaps = []
+    for i in range(len(items) - 1):
+        g = items[i + 1]["row"]["y"] - items[i]["row"]["y"]
+        if cur_gaps:
+            med = sorted(cur_gaps)[len(cur_gaps) // 2] or 1.0
+            ok = PITCH_LO * med <= g <= PITCH_HI * med
         else:
-            if len(cur) > len(best):
-                best = cur
+            ok = True   # 1er gap : il fixe le pas du run
+        if ok:
+            cur.append(items[i + 1])
+            cur_gaps.append(g)
+        else:
+            if len(cur) >= 2:
+                runs.append(cur)
             cur = [items[i + 1]]
-    return cur if len(cur) > len(best) else best
+            cur_gaps = []
+    if len(cur) >= 2:
+        runs.append(cur)
+    return runs
 
 
 def _col_bbox(run):
@@ -303,39 +354,68 @@ def _col_bbox(run):
     return [min(xs), min(ys), max(xs), max(ys)]
 
 
-def _valid_column(run):
+def _anchored(run, anchors):
+    """Un titre de legende surplombe-t-il cette colonne ?
+
+    Critere : l'ancre est AU-DESSUS de la 1re ligne (a <= ANCHOR_GAP hauteurs de ligne) et
+    son x0 est proche du bord gauche de la colonne (<= ANCHOR_X_TOL hauteurs de ligne).
+    L'ancre ne definit PAS la zone -- elle confirme une colonne deja reperee par alignement.
+    """
+    first = min(run, key=lambda p: p["row"]["y"])["row"]
+    left = _col_bbox(run)[0]
+    h = first["h"]
+    for a in anchors:
+        if 0 < first["y"] - a["y"] <= ANCHOR_GAP * h and abs(a["x0"] - left) <= ANCHOR_X_TOL * h:
+            return a
+    return None
+
+
+def _min_rows(anchor):
+    return MIN_ROWS_ANCHORED if anchor else MIN_ROWS
+
+
+def _valid_column(run, anchor):
     """Une colonne de legende : assez de lignes, en bande verticale, majoritairement
-    porteuse de glyphes."""
-    if len(run) < MIN_ROWS:
+    porteuse de glyphes.
+
+    Sous une ancre, les seuils STRUCTURELS s'assouplissent : 2 lignes suffisent et la
+    contrainte de bande verticale saute (une legende de 2 entrees est plus large que haute).
+    La part de glyphes reste exigee -- une colonne de texte sans aucun symbole n'est pas une
+    legende, ancre ou pas (c'est le cartouche : "Maitre d'ouvrage", "Hauteur sous dalle").
+    """
+    if len(run) < _min_rows(anchor):
         return False
-    x0, y0, x1, y1 = _col_bbox(run)
-    w = max(x1 - x0, 1.0)
-    h = y1 - y0
-    if h / w < MIN_ASPECT:
-        return False
+    if not anchor:
+        x0, y0, x1, y1 = _col_bbox(run)
+        if (y1 - y0) / max(x1 - x0, 1.0) < MIN_ASPECT:
+            return False
+    ratio = MIN_GLYPH_RATIO_ANCHORED if anchor else MIN_GLYPH_RATIO
     with_glyph = sum(1 for p in run if p["glyph"])
-    return with_glyph / len(run) >= MIN_GLYPH_RATIO
+    return with_glyph / len(run) >= ratio
 
 
 # ---------------------------------------------------------------- quantites
 
-def _qty_column(qty_rows, run):
+def _qty_column(qty_rows, run, min_rows):
     """Les lignes numeriques ne sont une colonne QTE que si elles sont DANS l'etendue en y
     de la colonne de legende, A DROITE des libelles, et alignees entre elles.
 
     Sans cette garde, on ramasse les nombres du plan : sur le plan VDI de BPCE, les valeurs
     80 / 160 / 353 observees le 2026-07-13 etaient des effectifs et des surfaces.
+
+    `min_rows` suit le seuil de la colonne : les legendes ROI RENE ont 2 entrees ET une vraie
+    colonne QTE ("LEGENDE VIDEOSURVEILLANCE / Camera Dome / QTE / 4 / 3").
     """
     y0 = min(p["row"]["y"] for p in run)
     y1 = max(p["row"]["y"] for p in run)
     x_lab = max(p["row"]["x0"] for p in run)
     cand = [q for q in qty_rows if y0 - 8 <= q["y"] <= y1 + 8 and q["x0"] > x_lab]
-    if len(cand) < MIN_ROWS:
+    if len(cand) < min_rows:
         return []
     xs = sorted(q["x0"] for q in cand)
     med = xs[len(xs) // 2]
     cand = [q for q in cand if abs(q["x0"] - med) <= 2 * q["h"]]
-    return cand if len(cand) >= MIN_ROWS else []
+    return cand if len(cand) >= min_rows else []
 
 
 # ---------------------------------------------------------------- API
@@ -346,7 +426,7 @@ def build_legend(clusters, words):
     Aucune ligne d'une colonne validee n'est jetee : elle sort comme entree, avec un
     glyph_bbox a None si aucun gabarit n'a pu lui etre attribue, et un warning la nomme.
     """
-    label_rows, qty_rows = _rows_from_words(words)
+    label_rows, qty_rows, anchors = _rows_from_words(words)
     warnings = []
 
     # 1re passe : apparier SANS reserver les glyphes. Une ligne de bruit ne doit pas voler
@@ -356,36 +436,40 @@ def build_legend(clusters, words):
         glyph, variants = _pair_glyph(row, clusters, used=set())
         pairs.append({"row": row, "glyph": glyph, "variants": variants})
 
-    runs = []
+    runs, run_anchors = [], []
     for col in _group_columns(pairs):
         items, merged = _merge_continuations(col["items"], clusters)
-        run = _longest_regular_run(items)
-        if not _valid_column(run):
-            # On ne signale que les colonnes qui ont VRAIMENT ete candidates : celles dont la
-            # suite reguliere atteint MIN_ROWS et qu'un filtre ULTERIEUR (bande verticale,
-            # part de glyphes) a ecartees. C'est la seule facon de perdre une vraie legende.
-            # Gater sur len(items) au lieu de len(run) noierait le signal : sur ce plan, 25
-            # paquets de texte partagent un x0 par hasard, mais 23 n'ont aucun pas regulier
-            # (run de 2 ou 3 lignes) -- ils n'ont jamais ete des candidats.
-            if len(run) >= MIN_ROWS:
+        col_runs = _regular_runs(items)
+        # une ligne d'un run valide n'est jamais "coupee" ; on ne signale la coupure que
+        # pour les lignes qui n'entrent dans AUCUN run de la colonne.
+        in_a_run = {id(p) for r in col_runs for p in r}
+        for run in col_runs:
+            anchor = _anchored(run, anchors)
+            if _valid_column(run, anchor):
+                runs.append(run)
+                run_anchors.append(anchor)
+            elif len(run) >= _min_rows(anchor):
+                # run assez long mais ecarte par un filtre ULTERIEUR (bande verticale, part
+                # de glyphes) : c'est la seule facon de perdre une vraie legende -> on signale.
                 x0, y0, x1, y1 = _col_bbox(run)
                 ratio = sum(1 for p in run if p["glyph"]) / len(run)
                 why = ("bande pas assez verticale"
-                       if (y1 - y0) / max(x1 - x0, 1.0) < MIN_ASPECT
+                       if not anchor and (y1 - y0) / max(x1 - x0, 1.0) < MIN_ASPECT
                        else f"seulement {ratio:.0%} des lignes portent un glyphe")
                 warnings.append(
-                    "colonne candidate rejetee (x0~{:.0f}, {} lignes regulieres, {}) : {}"
+                    "colonne candidate rejetee (x0~{:.0f}, {} lignes regulieres, {}{}) : {}"
                     .format(col["x0"], len(run), why,
+                            ", sous ancre " + repr(anchor["text"][:30]) if anchor else "",
                             ", ".join(repr(p["row"]["text"]) for p in run[:6])))
-            continue
-        gardees = {id(p) for p in run}
-        coupees = [p["row"]["text"] for p in items if id(p) not in gardees]
-        if coupees:
+        coupees = [p["row"]["text"] for p in items if id(p) not in in_a_run]
+        if coupees and any(_anchored(r, anchors) or _valid_column(r, _anchored(r, anchors))
+                           for r in col_runs):
             warnings.append(
-                "lignes ecartees par la coupure du pas vertical (colonne x0~{:.0f}) : {}"
-                .format(col["x0"], ", ".join(repr(t) for t in coupees)))
-        runs.append(run)
-    runs.sort(key=lambda r: _col_bbox(r)[0])
+                "lignes sans pas regulier ecartees (colonne x0~{:.0f}) : {}"
+                .format(col["x0"], ", ".join(repr(t) for t in coupees[:8])))
+    order = sorted(range(len(runs)), key=lambda i: (_col_bbox(runs[i])[0], _col_bbox(runs[i])[1]))
+    runs = [runs[i] for i in order]
+    run_anchors = [run_anchors[i] for i in order]
 
     # 2e passe : appariement GLOBAL du plus proche au plus lointain, sur les seules colonnes
     # retenues. Une ligne sans glyphe reste une entree -- elle est signalee, pas jetee.
@@ -393,7 +477,7 @@ def build_legend(clusters, words):
 
     entries, columns, orphelines = [], [], []
     for ci, run in enumerate(runs):
-        qty_rows_col = _qty_column(qty_rows, run)
+        qty_rows_col = _qty_column(qty_rows, run, _min_rows(run_anchors[ci]))
         for p in sorted(run, key=lambda p: p["row"]["y"]):
             row = p["row"]
             glyph, variants = assigned.get(id(row), (None, []))

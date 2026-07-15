@@ -90,3 +90,36 @@ def test_les_entrees_sont_mappees_ou_signalees(legende):
     # compter ca"). Jamais AUTRE_SYMBOLE, qui masquerait le probleme.
     for e in legende["entries"]:
         assert e["canon"] != "AUTRE_SYMBOLE"
+
+
+# --- Legende COURTE sous ANCRE. Mesure du 2026-07-15 : les legendes ROI RENE ne font que
+# 2 a 6 entrees ("LEGENDE VIDEOSURVEILLANCE" + 3 cameras avec colonne QTE). Sans support
+# d'ancre, les seuils structurels (MIN_ROWS=4, bande verticale) les rejetaient en bloc et
+# 6 plans sur 12 rendaient ZERO entree au banc. Ce test verrouille ce chemin.
+_ANCRE_GLOB = "*CFA-100-Plan videosurveillance rdc hotel roi rene.pdf"
+
+
+@pytest.fixture(scope="module")
+def legende_ancre():
+    hits = list((HERE.parents[1] / "PLANS_COMPLETS_NEW").rglob(_ANCRE_GLOB))
+    if not hits:
+        pytest.skip(f"PDF de test absent : {_ANCRE_GLOB}")
+    return read_legend(hits[0])
+
+
+def test_legende_courte_sous_ancre_est_detectee(legende_ancre):
+    # 3 cameras sous "LEGENDE VIDEOSURVEILLANCE" ; sans ancre, une colonne de 3 lignes plus
+    # large que haute serait rejetee.
+    labels = [e["label"] for e in legende_ancre["entries"]]
+    cams = [l for l in labels if "amera" in l.lower() or "améra" in l.lower()]
+    assert len(cams) >= 3, f"cameras sous ancre non detectees : {labels}"
+
+
+def test_colonne_qte_courte_est_lue(legende_ancre):
+    # Cette legende a une vraie colonne QTE alignee (contrairement a BPCE). Au moins une
+    # camera doit porter sa quantite -- la garde _qty_column ne doit pas l'ecarter au motif
+    # qu'il y a moins de MIN_ROWS lignes (le seuil suit le mode ancre).
+    cams = [e for e in legende_ancre["entries"]
+            if "amera" in e["label"].lower() or "améra" in e["label"].lower()]
+    assert any(e["qty_declared"] is not None for e in cams), \
+        f"aucune quantite lue sous ancre : {[(e['label'], e['qty_declared']) for e in cams]}"

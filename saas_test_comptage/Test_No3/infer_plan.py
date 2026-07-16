@@ -151,8 +151,8 @@ def infer(pdf_path, model_ts, meta_json, thresholds_json=None, page_no=0, progre
     for box, score, cl in dets:
         nm = names[cl]
         counts[nm] = counts.get(nm, 0) + 1
-        out.append({"cls": cl, "name": nm, "box": [round(v, 1) for v in box],
-                    "score": round(score, 3)})
+        out.append({"cls": int(cl), "name": nm, "box": [round(float(v), 1) for v in box],
+                    "score": round(float(score), 3)})
     return {"detections": out, "counts": counts, "image": arr, "zoom": zoom,
             "plan_bbox": plan_bbox, "n_tiles": len(positions)}
 

@@ -97,7 +97,7 @@ cells = [
          "    inst = model(inputs)[0]['instances']\n"
          "    return [{'instances': inst}]\n"
          "\n"
-         "adapter = TracingAdapter(model, inputs, inference)\n"
+         "adapter = TracingAdapter(model, inputs, inference, allow_non_tensor=True)\n"
          "adapter.eval()\n"
          "with torch.no_grad():\n"
          "    ts = torch.jit.trace(adapter, adapter.flattened_inputs)\n"

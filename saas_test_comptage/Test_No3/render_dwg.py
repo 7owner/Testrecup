@@ -353,9 +353,11 @@ def _render_group(syms, skeleton, width=1800):
             seg = [X, Y, X + W, Y, X + W, Y + H, X, Y + H]
         boxes.append({"label": s["label"], "x": round(X, 1), "y": round(Y, 1),
                       "w": round(W, 1), "h": round(H, 1), "seg": seg})
-        elems.append(f'<rect x="{X:.1f}" y="{Y:.1f}" width="{W:.1f}" height="{H:.1f}" '
-                     f'fill="none" stroke="{color[s["label"]]}" stroke-width="1.6">'
-                     f'<title>{html.escape(s["label"])}</title></rect>')
+        # NE PAS dessiner la boite dans l'image : c'est la VERITE. La dessiner (ancienne
+        # version, 2026-07 et avant) fuitait la reponse dans l'image d'entrainement -> le
+        # modele apprenait a detecter le rectangle colore, absent du PDF de production ->
+        # detections catastrophiques sur PDF propre (diagnostic 2026-07-16). La boite/masque
+        # reste UNIQUEMENT en metadonnee (boxes[]), jamais dans les pixels.
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
            f'style="background:#fff">' + "".join(elems) + "</svg>")
     meta = {"width": width, "height": height, "classes": classes,

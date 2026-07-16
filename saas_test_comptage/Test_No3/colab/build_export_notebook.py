@@ -21,28 +21,38 @@ def code(text):
 
 
 cells = [
-    md("# Export TorchScript — detecteur de symboles\n"
+    md("# Export TorchScript — detecteur de symboles (RE-export autonome)\n"
        "\n"
-       "Charge un `model_final.pth` deja entraine et l'exporte en **TorchScript** pour\n"
-       "l'inference LOCALE (torch-CPU, sans detectron2).\n"
+       "**Cas normal : tu n'as PAS besoin de ce notebook.** L'export est deja greffe a la\n"
+       "fin de `train_instance_seg.ipynb` (section 8) et se fait dans la meme session que\n"
+       "l'entrainement, sans aucun upload.\n"
        "\n"
-       "**Runtime GPU pas necessaire** (CPU suffit pour tracer). Etapes : 1) installer →\n"
-       "2) uploader `model_final.pth` + `coco_colab.zip` → 3) exporter → 4) verifier la\n"
-       "structure des sorties (indispensable pour le decodeur local)."),
+       "Ce notebook-ci sert seulement a **RE-exporter** un `model_final.pth` deja entraine\n"
+       "sans re-entrainer (si le code d'export doit etre corrige). Il lit le `.pth` depuis\n"
+       "**Google Drive** — surtout PAS via `files.upload()`, qui plafonne a ~1-2 Mo/s et fait\n"
+       "expirer la session sur un fichier de 352 Mo.\n"
+       "\n"
+       "**Runtime CPU suffit** (Execution → Modifier le type d'execution → CPU) : l'export ne\n"
+       "touche pas le GPU, inutile d'attendre un GPU disponible.\n"
+       "\n"
+       "Prerequis : depose `model_final.pth` et `coco_colab.zip` dans un dossier Drive\n"
+       "`MyDrive/comptage/` (l'upload vers Drive est resumable et se fait hors Colab)."),
 
     md("## 1. Installer detectron2"),
     code("!pip -q install 'git+https://github.com/facebookresearch/detectron2.git'\n"
          "import torch, detectron2\n"
          "print('torch', torch.__version__, '| detectron2', detectron2.__version__)"),
 
-    md("## 2. Uploader `model_final.pth` et `coco_colab.zip`\n"
-       "Le zip sert uniquement a lire les NOMS de classes (l'ordre des categories COCO).\n"
-       "**Le meme zip que celui de l'entrainement** — l'ordre des classes doit coller au modele."),
-    code("from google.colab import files\n"
-         "print('-> model_final.pth'); files.upload()\n"
-         "print('-> coco_colab.zip');  files.upload()\n"
-         "!unzip -oq coco_colab.zip -d .\n"
-         "import json\n"
+    md("## 2. Monter Google Drive (PAS d'upload navigateur)\n"
+       "Le `.pth` (352 Mo) est lu directement depuis Drive. Le zip sert uniquement a lire\n"
+       "l'ordre des NOMS de classes — **le meme zip que celui de l'entrainement**.\n"
+       "Ajuste `DRIVE_DIR` si tu as range les fichiers ailleurs."),
+    code("from google.colab import drive\n"
+         "drive.mount('/content/drive')\n"
+         "import json, shutil\n"
+         "DRIVE_DIR = '/content/drive/MyDrive/comptage'   # <-- ou tes fichiers sont ranges\n"
+         "shutil.copy(DRIVE_DIR + '/model_final.pth', 'model_final.pth')\n"
+         "shutil.unpack_archive(DRIVE_DIR + '/coco_colab.zip', '.')\n"
          "CATS = sorted(json.load(open('coco_colab/train/annotations.json'))['categories'],\n"
          "              key=lambda c: c['id'])\n"
          "CLASS_NAMES = [c['name'] for c in CATS]\n"
@@ -142,7 +152,7 @@ nb = {
     "metadata": {
         "kernelspec": {"display_name": "Python 3", "name": "python3"},
         "language_info": {"name": "python"},
-        "accelerator": "GPU",
+        "accelerator": "None",
     },
     "nbformat": 4,
     "nbformat_minor": 0,

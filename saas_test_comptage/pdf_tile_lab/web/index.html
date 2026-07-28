@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Tile Lab</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <section class="panel">
+        <h1>PDF Tile Lab</h1>
+        <p class="muted">Validation du decoupage PDF en cellules haute definition avant detection IA.</p>
+      </section>
+
+      <section class="panel">
+        <label class="field">
+          <span>Plan PDF</span>
+          <input id="pdfInput" type="file" accept=".pdf,application/pdf">
+        </label>
+        <button id="uploadButton" class="button primary" type="button">Importer</button>
+        <div id="fileInfo" class="muted compact-text">Aucun PDF charge.</div>
+      </section>
+
+      <section class="panel controls">
+        <label class="field">
+          <span>Page</span>
+          <input id="pageInput" type="number" min="1" value="1">
+        </label>
+        <div class="two-cols">
+          <label class="field">
+            <span>Lignes</span>
+            <input id="rowsInput" type="number" min="1" max="20" value="5">
+          </label>
+          <label class="field">
+            <span>Colonnes</span>
+            <input id="colsInput" type="number" min="1" max="20" value="5">
+          </label>
+        </div>
+        <label class="field">
+          <span>Qualite du zoom rendu</span>
+          <input id="dpiInput" type="range" min="120" max="600" step="30" value="300">
+          <strong><span id="dpiValue">300</span> DPI</strong>
+          <em>Plus la valeur est haute, plus les cellules exportees sont nettes et lourdes.</em>
+        </label>
+        <label class="field">
+          <span>Zoom apercu page</span>
+          <input id="previewZoomInput" type="range" min="70" max="220" step="10" value="100">
+          <strong><span id="previewZoomValue">100</span>%</strong>
+        </label>
+        <label class="field">
+          <span>Marge autour cellule</span>
+          <input id="tileMarginInput" type="range" min="0" max="40" step="5" value="15">
+          <strong><span id="tileMarginValue">15</span>%</strong>
+          <em>Evite de couper les symboles situes sur une limite de cellule.</em>
+        </label>
+        <label class="field">
+          <span>Amelioration</span>
+          <select id="enhanceSelect">
+            <option value="none">Aucune</option>
+            <option value="pil">PIL contraste + nettete x2</option>
+            <option value="opencv">OpenCV contraste + nettete x2</option>
+          </select>
+        </label>
+        <button id="previewButton" class="button" type="button">Voir la grille</button>
+        <button id="renderButton" class="button" type="button">Rendre toute la grille</button>
+        <button id="resetGridButton" class="button" type="button">Grille sur toute la page</button>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <strong id="title">Aucun plan selectionne</strong>
+          <div id="status" class="muted">Importe un PDF pour commencer.</div>
+        </div>
+      </header>
+
+      <section class="preview-layout">
+        <div class="panel page-panel">
+          <div class="panel-head">
+            <h2>Page decoupee</h2>
+            <span id="gridMeta" class="muted"></span>
+          </div>
+          <div id="pagePreview" class="page-preview empty-state">La grille apparaitra ici.</div>
+          <div class="hint">Clique dans une cellule pour rendre uniquement cette cellule en haute qualite.</div>
+        </div>
+
+        <div class="panel inspector">
+          <div class="panel-head">
+            <h2>Cellule selectionnee</h2>
+            <span id="tileMeta" class="muted"></span>
+          </div>
+          <div class="inspect-toolbar">
+            <label>
+              Zoom cellule
+              <select id="tileZoomSelect">
+                <option value="fit">Adapter</option>
+                <option value="1">100%</option>
+                <option value="2">200%</option>
+                <option value="3">300%</option>
+                <option value="4">400%</option>
+                <option value="6">600%</option>
+              </select>
+            </label>
+            <label>
+              <input id="pixelSharpInput" type="checkbox">
+              Pixels nets
+            </label>
+          </div>
+          <div class="detect-toolbar">
+            <button id="templateModeButton" class="button small" type="button">Selectionner symbole</button>
+            <label>
+              Seuil
+              <input id="detectThresholdInput" type="range" min="0.45" max="0.95" step="0.01" value="0.72">
+              <strong id="detectThresholdValue">0.72</strong>
+            </label>
+            <label>
+              <input id="detectRotationsInput" type="checkbox" checked>
+              rotations 90 deg
+            </label>
+            <button id="detectButton" class="button small primary" type="button">Detecter cellule</button>
+            <button id="detectRedButton" class="button small" type="button">Detecter symboles rouges</button>
+          </div>
+          <div class="compare-grid">
+            <div>
+              <h3>Original</h3>
+              <div id="originalTile" class="tile-stage empty-state">Aucune cellule.</div>
+            </div>
+            <div>
+              <h3>Ameliore</h3>
+              <div id="enhancedTile" class="tile-stage empty-state">Aucune cellule.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Cellules rendues</h2>
+          <span id="tilesMeta" class="muted"></span>
+        </div>
+        <div id="tilesGrid" class="tiles-grid empty-state">Les cellules haute definition apparaitront ici.</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Detection par symbole</h2>
+          <span id="detectMeta" class="muted">Aucun gabarit selectionne.</span>
+        </div>
+        <div class="detect-result">
+          <div>
+            <h3>Gabarit</h3>
+            <div id="templatePreview" class="small-stage empty-state">Selectionne un symbole dans Original.</div>
+          </div>
+          <div>
+            <h3>Resultat</h3>
+            <div id="detectPreview" class="tile-stage empty-state">L'overlay de detection apparaitra ici.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Segmentation d'instance IA</h2>
+          <span id="segMeta" class="muted">Checkpoint non charge.</span>
+        </div>
+        <div class="seg-controls">
+          <label>
+            Checkpoint
+            <select id="segCheckpointSelect">
+              <option value="">Recherche...</option>
+            </select>
+          </label>
+          <label>
+            Score
+            <input id="segScoreInput" type="range" min="0.10" max="0.90" step="0.05" value="0.50">
+            <strong id="segScoreValue">0.50</strong>
+          </label>
+          <button id="refreshSegButton" class="button small" type="button">Actualiser</button>
+          <button id="segmentTileButton" class="button small primary" type="button">Segmenter cellule</button>
+        </div>
+        <div id="segCounts" class="counts-grid empty-state">Aucun resultat de segmentation.</div>
+        <div id="segPreview" class="tile-stage empty-state">L'overlay Mask R-CNN apparaitra ici.</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Verifier dataset segmentation</h2>
+          <span id="cocoMeta" class="muted">Chargement des datasets...</span>
+        </div>
+        <div class="seg-controls">
+          <label>
+            Dataset
+            <select id="cocoDatasetSelect">
+              <option value="">Recherche...</option>
+            </select>
+          </label>
+          <label>
+            Split
+            <select id="cocoSplitSelect">
+              <option value="train">train</option>
+              <option value="val">val</option>
+              <option value="test">test</option>
+            </select>
+          </label>
+          <label>
+            Tuile
+            <input id="cocoIndexInput" type="number" min="0" value="0">
+          </label>
+          <button id="loadCocoSampleButton" class="button small primary" type="button">Afficher annotations</button>
+        </div>
+        <div id="cocoCounts" class="counts-grid empty-state">Aucun echantillon affiche.</div>
+        <div class="compare-grid">
+          <div>
+            <h3>Tuile brute</h3>
+            <div id="cocoRawPreview" class="tile-stage empty-state">Aucune tuile.</div>
+          </div>
+          <div>
+            <h3>Masques COCO</h3>
+            <div id="cocoOverlayPreview" class="tile-stage empty-state">Aucune annotation.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Classes a entrainer</h2>
+          <span id="classMeta" class="muted">Selectionne un dataset.</span>
+        </div>
+        <div class="seg-controls">
+          <button id="loadClassesButton" class="button small primary" type="button">Afficher les classes</button>
+          <label>
+            Exemples split
+            <select id="classExampleSplitSelect">
+              <option value="train">train</option>
+              <option value="val">val</option>
+            </select>
+          </label>
+        </div>
+        <div class="class-layout">
+          <div id="classList" class="class-list empty-state">Aucune classe chargee.</div>
+          <div>
+            <div class="panel-head inner-head">
+              <h3 id="classExampleTitle">Exemples</h3>
+              <span id="classExampleMeta" class="muted"></span>
+            </div>
+            <div id="classExamples" class="example-grid empty-state">Clique une classe pour voir ses exemples.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Atlas visuel legende vers plan</h2>
+          <span id="visualAtlasMeta" class="muted">Symboles non charges.</span>
+        </div>
+        <div class="seg-controls">
+          <button id="loadLegendSymbolsButton" class="button small primary" type="button">Afficher symboles legende</button>
+          <label>
+            Recherche split
+            <select id="visualMatchSplitSelect">
+              <option value="train">train</option>
+              <option value="val">val</option>
+            </select>
+          </label>
+          <label>
+            Nombre exemples
+            <input id="visualMatchLimitInput" type="number" min="4" max="40" value="12">
+          </label>
+        </div>
+        <div class="visual-atlas-layout">
+          <div>
+            <h3>Symboles illustres dans la legende</h3>
+            <div id="legendSymbolsGrid" class="legend-symbol-grid empty-state">Clique le bouton pour charger les symboles.</div>
+          </div>
+          <div>
+            <div class="panel-head inner-head">
+              <h3 id="visualMatchTitle">Representations dans le plan</h3>
+              <span id="visualMatchMeta" class="muted"></span>
+            </div>
+            <div id="visualMatchesGrid" class="example-grid empty-state">Clique un symbole de legende pour chercher ses representations visuelles dans le plan.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/web/app.js"></script>
+</body>
+</html>

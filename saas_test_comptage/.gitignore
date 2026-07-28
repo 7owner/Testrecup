@@ -37,6 +37,8 @@ plan_takeoff/cache/
 plan_takeoff/rapport/
 plan_takeoff/rapport_pdf/
 plan_takeoff/tools/
+pdf_tile_lab/runs/
+pdf_tile_lab/uploads/
 hybrid_runs/
 hybrid_feedback/
 hybrid_viewer/

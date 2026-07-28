@@ -65,7 +65,7 @@ def _crop_template(img, bbox, zoom, pad_ratio=0.18):
     return img[py0:py1, px0:px1]
 
 
-def _match_one(img, tpl, threshold, rotations):
+def _match_one(img, tpl, threshold, rotations, max_hits_per_rotation=None):
     """Retourne la liste des detections (x_pixel, y_pixel, score) apres NMS multi-rotation."""
     ih, iw = img.shape
     dets = []
@@ -78,7 +78,15 @@ def _match_one(img, tpl, threshold, rotations):
         if rt.std() < 3:
             continue
         res = cv2.matchTemplate(img, rt, cv2.TM_CCOEFF_NORMED)
-        ys, xs = np.where(res >= threshold)
+        if max_hits_per_rotation:
+            flat = res.ravel()
+            take = min(int(max_hits_per_rotation), flat.size)
+            idxs = np.argpartition(flat, -take)[-take:]
+            ys, xs = np.unravel_index(idxs, res.shape)
+            keep = res[ys, xs] >= threshold
+            ys, xs = ys[keep], xs[keep]
+        else:
+            ys, xs = np.where(res >= threshold)
         for x, y in zip(xs, ys):
             dets.append((x + tw / 2.0, y + th / 2.0, float(res[y, x]), max(tw, th)))
     if not dets:
@@ -94,7 +102,8 @@ def _match_one(img, tpl, threshold, rotations):
 
 
 def count_pdf_raster(pdf_path: Path, threshold=DEFAULT_THRESHOLD, rotations=ROTATIONS,
-                     dpi=DPI, progress=False) -> dict:
+                     dpi=DPI, progress=False, max_templates=None,
+                     max_hits_per_rotation=None) -> dict:
     doc = fitz.open(pdf_path)
     all_rows = []
     overlays = []
@@ -114,6 +123,9 @@ def count_pdf_raster(pdf_path: Path, threshold=DEFAULT_THRESHOLD, rotations=ROTA
             lr = (legend_rect.x0 * zoom, legend_rect.y0 * zoom,
                   legend_rect.x1 * zoom, legend_rect.y1 * zoom)
         marks = []
+        if max_templates:
+            templates = templates[:int(max_templates)]
+            warnings.append(f"page {pno + 1} : raster borne aux {len(templates)} premiers gabarits")
         for t in templates:
             tpl = _crop_template(img, t["cluster"]["bbox"], zoom)
             if tpl is None:
@@ -124,7 +136,10 @@ def count_pdf_raster(pdf_path: Path, threshold=DEFAULT_THRESHOLD, rotations=ROTA
                 ok, buf = cv2.imencode(".png", tpl)
                 if ok:
                     thumbs[t["label"]] = base64.b64encode(buf.tobytes()).decode("ascii")
-            dets = _match_one(img, tpl, threshold, rotations)
+            dets = _match_one(
+                img, tpl, threshold, rotations,
+                max_hits_per_rotation=max_hits_per_rotation,
+            )
             # retirer les detections dans la zone de legende
             if lr:
                 dets = [d for d in dets if not (lr[0] <= d[0] <= lr[2] and lr[1] <= d[1] <= lr[3])]

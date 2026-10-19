@@ -341,3 +341,63 @@ test('E11 fiche detail porte : lecteur de sortie, registres au numero de lecteur
     assert.equal(valeur('Déclencheur manuel'), 'DA0103', 'porte 1 : DM');
   });
 });
+
+test('E12 schema de cablage : la porte a deux lecteurs cable sa sortie sur L2', OPTIONS, async () => {
+  await avecPage(fx.fixtureBase(TIL), async ({ page }) => {
+    const schema = num => page.evaluate(n => {
+      voirDetailPorte(n, 0);
+      if (typeof closeWiringUsagePopup === 'function') closeWiringUsagePopup();
+      const svg = document.querySelector('#modal-body .door-wiring-svg');
+      const cles = [...svg.querySelectorAll('[data-seg="reader-line"]')].map(e => e.dataset.key);
+      const lignes = [...document.querySelectorAll('#modal-body .door-wire-row')].map(r => r.textContent.replace(/\s+/g, ' ').trim());
+      fermerModal();
+      return { bornes: [...new Set(cles)].map(k => k.split(':').pop()), lignes };
+    }, num);
+
+    const p2 = await schema(2);
+    assert.deepEqual(p2.bornes, ['L1', 'L2'], 'porte 2 : un cable lecteur sur L1 et un sur L2');
+    assert.ok(p2.lignes.some(l => l.includes('Lecteur de sortie') && l.includes('LA4') && l.includes('L2')), `porte 2 : ligne lecteur de sortie LA4 sur L2 absente : ${p2.lignes.join(' / ')}`);
+    assert.ok(p2.lignes.some(l => l.includes("Lecteur d'entrée") && l.includes('LA3') && l.includes('L1')), 'porte 2 : lecteur d\'entree LA3 sur L1');
+
+    const p1 = await schema(1);
+    assert.deepEqual(p1.bornes, ['L1'], 'porte 1 (un lecteur) : seulement L1');
+    const p3 = await schema(3);
+    assert.deepEqual(p3.bornes, ['L2'], 'porte 3 (2e tete) : seulement L2');
+
+    // La couleur du cable de sortie est independante de celle de l'entree.
+    const couleurs = await page.evaluate(() => {
+      const porte = getTillysActif().portes[1];
+      _applyColorToPorte(porte, 'readerOut', 'Vert', 'Noir');
+      return { sortie: porte.wiringConfig.readerOut.color, entree: porte.wiringConfig.reader.color };
+    });
+    assert.equal(couleurs.sortie, 'Vert');
+    assert.notEqual(couleurs.entree, 'Vert');
+  });
+});
+
+test('E13 export Excel liste des portes : feuille EXPORT_APP_PORTES alignee sur le tableau d\'adresses', OPTIONS, async () => {
+  await avecPage(fx.fixtureBase(TIL), async ({ page }) => {
+    const lignes = await page.evaluate(() => {
+      let classeur = null;
+      XLSX.writeFile = wb => { classeur = wb; };
+      exporterListePortesExcel();
+      return XLSX.utils.sheet_to_json(classeur.Sheets.EXPORT_APP_PORTES, { header: 1, defval: '' });
+    });
+    const entete = lignes[0];
+    const col = nom => {
+      const i = entete.indexOf(nom);
+      assert.ok(i >= 0, `colonne ${nom} absente : ${entete.join(' | ')}`);
+      return i;
+    };
+    // Les colonnes historiques ne bougent pas, les nouvelles viennent apres AP_ADDR.
+    assert.ok(col('LECTEUR_ADDR') > col('AP_ADDR'));
+    const ligne = triNum => lignes.find(l => l[col('TRI_NUM')] === triNum);
+    const p1 = ligne('A_N0_1'), p2 = ligne('A_N0_2'), p3 = ligne('A_N0_3');
+    assert.deepEqual([p1[col('BP_ADDR')], p1[col('DM_ADDR')], p1[col('AP_ADDR')]], ['DA0101', 'DA0103', ''], 'porte 1 : BP et DM poses, pas d\'AP');
+    assert.deepEqual([p3[col('BP_ADDR')], p3[col('DM_ADDR')], p3[col('AP_ADDR')]], ['', '', ''], 'porte 3 : aucun equipement pose');
+    assert.deepEqual([p2[col('LECTEUR_ADDR')], p2[col('LECTEUR_SORTIE_ADDR')]], ['LA3', 'LA4']);
+    assert.deepEqual(['CMD_REG', 'TIMER_REG', 'EFFRACTION_REG', 'POTL_REG'].map(c => p2[col(c)]), ['M3', 'TN3', 'R3', 'V3']);
+    assert.deepEqual(['CMD_REG', 'TIMER_REG', 'EFFRACTION_REG', 'POTL_REG'].map(c => p3[col(c)]), ['M2', 'TN2', 'R2', 'V2']);
+    assert.equal(p3[col('LECTEUR_SORTIE_ADDR')], '');
+  });
+});

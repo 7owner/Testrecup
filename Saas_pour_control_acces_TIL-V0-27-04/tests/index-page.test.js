@@ -375,29 +375,70 @@ test('E12 schema de cablage : la porte a deux lecteurs cable sa sortie sur L2', 
   });
 });
 
-test('E13 export Excel liste des portes : feuille EXPORT_APP_PORTES alignee sur le tableau d\'adresses', OPTIONS, async () => {
+test('E13 export Excel liste des portes : une seule feuille, lecteur de sortie compris', OPTIONS, async () => {
   await avecPage(fx.fixtureBase(TIL), async ({ page }) => {
-    const lignes = await page.evaluate(() => {
+    const resultat = await page.evaluate(() => {
       let classeur = null;
       XLSX.writeFile = wb => { classeur = wb; };
       exporterListePortesExcel();
-      return XLSX.utils.sheet_to_json(classeur.Sheets.EXPORT_APP_PORTES, { header: 1, defval: '' });
+      return {
+        feuilles: classeur.SheetNames,
+        lignes: XLSX.utils.sheet_to_json(classeur.Sheets[classeur.SheetNames[0]], { header: 1, defval: '' }),
+      };
     });
-    const entete = lignes[0];
-    const col = nom => {
-      const i = entete.indexOf(nom);
-      assert.ok(i >= 0, `colonne ${nom} absente : ${entete.join(' | ')}`);
-      return i;
-    };
-    // Les colonnes historiques ne bougent pas, les nouvelles viennent apres AP_ADDR.
-    assert.ok(col('LECTEUR_ADDR') > col('AP_ADDR'));
-    const ligne = triNum => lignes.find(l => l[col('TRI_NUM')] === triNum);
-    const p1 = ligne('A_N0_1'), p2 = ligne('A_N0_2'), p3 = ligne('A_N0_3');
-    assert.deepEqual([p1[col('BP_ADDR')], p1[col('DM_ADDR')], p1[col('AP_ADDR')]], ['DA0101', 'DA0103', ''], 'porte 1 : BP et DM poses, pas d\'AP');
-    assert.deepEqual([p3[col('BP_ADDR')], p3[col('DM_ADDR')], p3[col('AP_ADDR')]], ['', '', ''], 'porte 3 : aucun equipement pose');
-    assert.deepEqual([p2[col('LECTEUR_ADDR')], p2[col('LECTEUR_SORTIE_ADDR')]], ['LA3', 'LA4']);
-    assert.deepEqual(['CMD_REG', 'TIMER_REG', 'EFFRACTION_REG', 'POTL_REG'].map(c => p2[col(c)]), ['M3', 'TN3', 'R3', 'V3']);
-    assert.deepEqual(['CMD_REG', 'TIMER_REG', 'EFFRACTION_REG', 'POTL_REG'].map(c => p3[col(c)]), ['M2', 'TN2', 'R2', 'V2']);
-    assert.equal(p3[col('LECTEUR_SORTIE_ADDR')], '');
+    assert.deepEqual(resultat.feuilles, ['LISTE DE PORTE'], 'l\'export ne contient que la liste des portes');
+    const hall = resultat.lignes.find(l => l.includes('Hall'));
+    assert.ok(hall, 'ligne du Hall absente');
+    assert.equal(hall.filter(v => v === 'LB').length, 2, 'Hall : lecteur LB en entree et en sortie');
+  });
+});
+
+test('E14 export Excel auto-control : feuille unique, statuts et couleurs du projet', { timeout: 90000 }, async () => {
+  await avecPage(fx.fixtureBase(TIL), async ({ page }) => {
+    const base64 = await page.evaluate(async () => {
+      const snapshot = getAutoControlSnapshot();
+      const rows = getAutoControlRows(snapshot);
+      const porte1 = getAutoControlRecord(rows[0].key);
+      porte1.etatGeneral = 'C';
+      porte1.bp = 'NC';
+      porte1.commentaires = 'BP a remplacer';
+      porte1.dmExempt = 'X';
+      getAutoControlRecord(rows[1].key).etatGeneral = 'NV';
+      const reponse = await fetch(getAutoControlExportEndpoint(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildAutoControlTemplateExportPayload(snapshot, rows)),
+      });
+      if (!reponse.ok) return 'HTTP ' + reponse.status + ' ' + await reponse.text();
+      const octets = new Uint8Array(await reponse.arrayBuffer());
+      let texte = '';
+      for (let i = 0; i < octets.length; i += 1) texte += String.fromCharCode(octets[i]);
+      return btoa(texte);
+    });
+    assert.ok(!base64.startsWith('HTTP'), base64.slice(0, 300));
+    const XLSXN = require(require('path').join(require('./helpers/racine').getRacineApp(), 'app', 'vendor', 'xlsx.full.min.js'));
+    const wb = XLSXN.read(Buffer.from(base64, 'base64'), { bookVBA: true, cellStyles: true });
+    assert.deepEqual(wb.SheetNames, ['Fiche auto control'], 'une seule feuille');
+    assert.ok(!wb.vbaraw, 'pas de macros dans l\'export');
+    const ws = wb.Sheets['Fiche auto control'];
+    const valeur = ref => (ws[ref] && ws[ref].v) || '';
+    const fond = ref => (ws[ref] && ws[ref].s && ws[ref].s.patternType === 'solid' && ws[ref].s.fgColor && ws[ref].s.fgColor.rgb) || '';
+
+    // Porte 1 (ligne 15) : statuts saisis, DM exempte en gris, commentaire du projet.
+    assert.equal(valeur('B15'), 'Local Velos');
+    assert.deepEqual([valeur('E15'), valeur('J15'), valeur('T15')], ['C', 'NC', 'BP a remplacer']);
+    assert.equal(valeur('G15'), '', 'DM exempte : pas de statut');
+    assert.equal(fond('G15'), 'D9D9D9', 'DM exempte : gris de l\'application');
+    // Seules les cases exemptees ou les bandeaux de section portent un fond dans la zone des portes.
+    const autres = Object.keys(ws)
+      .filter(ref => ref[0] !== '!')
+      .filter(ref => {
+        const ligne = Number(ref.replace(/[A-Z]+/, ''));
+        return ligne >= 15 && ligne <= 270 && fond(ref) && ref !== 'G15' && !/^[A-Z]+14$/.test(ref);
+      });
+    assert.deepEqual(autres.slice(0, 10), [], 'couleurs qui ne viennent pas du projet');
+    // Aucun reste de l'exemple du modele.
+    const texte = Object.keys(ws).filter(ref => ref[0] !== '!').map(ref => String(ws[ref].v || '')).join(' ');
+    assert.ok(!/SARTOR|P17|LUDO/i.test(texte), 'donnees de l\'ancien chantier dans l\'export');
   });
 });

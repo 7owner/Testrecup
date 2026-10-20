@@ -44,6 +44,13 @@ test('M2 modele auto-control : feuilles appelees par les macros et en-tetes cons
   assert.ok(code.includes('Sub CopierValeurs') && code.includes('Sub MettreAJourToutesImages'), 'macros du modele introuvables');
   assert.ok(code.includes('Sheets("TILLYS 02 (RDC)")'), 'macro sans le nouveau nom de feuille');
   assert.ok(!code.includes('P17 - TILLYS'), 'macro encore sur l\'ancien nom de feuille');
+  // Macros utiles hors generation : evenements de feuille et d'ouverture conserves.
+  ['Sub Workbook_Open', 'Sub Worksheet_SelectionChange', 'Sub Worksheet_Activate', 'Sub GererImage']
+    .forEach(proc => assert.ok(code.includes(proc), `macro « ${proc} » absente`));
+  // Macros mortes retirees : Macro1 (Enregistrer sous vers un poste nominatif) et
+  // Image2_Cliquer (visait une feuille « Feuil1 » inexistante, rattachee a aucune forme).
+  assert.ok(!code.includes('Sub Macro1') && !code.includes('lguais'), 'Macro1 encore presente');
+  assert.ok(!code.includes('Image2_Cliquer'), 'Image2_Cliquer encore presente');
   assert.ok(wb.vbaraw && wb.vbaraw.length > 0, 'projet VBA absent');
   const valeur = (feuille, ref) => (wb.Sheets[feuille][ref] || {}).v;
   assert.equal(valeur('LISTE DE PORTE', 'D2'), 'N°PORTE');

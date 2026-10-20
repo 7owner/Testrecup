@@ -1,13 +1,14 @@
 'use strict';
 
 // Tests de bout en bout de app/index.html dans Chromium (Playwright), contre le
-// serveur local du projet sur un port libre. Plan « Logiciel TIL » : E0 a E11.
+// serveur local du projet sur un port libre. Plan « Logiciel TIL » : E0 a E14,
+// plan « APERIO + biometrie » : E15 a E23, revue APERIO : E24 a E27.
 // Aucune impression reelle (window.print neutralise), aucun export Excel.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { chargerGenerator } = require('./helpers/charger-generator');
 const fx = require('./helpers/fixtures');
-const { demarrerApp, preparerPage, capturerPopup, largeurImage } = require('./helpers/page');
+const { demarrerApp, preparerPage, chargerTillys, capturerPopup, largeurImage } = require('./helpers/page');
 
 const TIL = chargerGenerator();
 const OPTIONS = { timeout: 30000 };
@@ -440,5 +441,330 @@ test('E14 export Excel auto-control : feuille unique, statuts et couleurs du pro
     // Aucun reste de l'exemple du modele.
     const texte = Object.keys(ws).filter(ref => ref[0] !== '!').map(ref => String(ws[ref].v || '')).join(' ');
     assert.ok(!/SARTOR|P17|LUDO/i.test(texte), 'donnees de l\'ancien chantier dans l\'export');
+  });
+});
+
+// ── APERIO et biometrie (plan « APERIO + biometrie » : E15 a E23) ─────────
+
+// Lignes du tableau d'adresses rendu, indexees par numero de porte.
+async function tableauAdresses(page) {
+  const lignes = await page.evaluate(() => {
+    renderTableauAdresses();
+    return [...document.querySelectorAll('#addr-tbody tr')]
+      .map(tr => [...tr.querySelectorAll('td')].map(td => td.textContent.replace(/\s+/g, ' ').trim()));
+  });
+  return num => lignes.find(cellules => cellules[0] === String(num).padStart(2, '0'));
+}
+
+test('E15 tableau d\'adresses : porte APERIO 3 sans relais, LED sur la tete LA2 ; porte 1 inchangee', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page }) => {
+    const porte = await tableauAdresses(page);
+    const p3 = porte(3);
+    assert.ok(p3, 'ligne de la porte 3 absente');
+    assert.equal(p3[7], 'APERIO', 'serrure porte 3');
+    assert.equal(p3[8], 'APERIO', 'colonne Relais : APERIO au lieu d\'un registre relais');
+    assert.equal(p3[9], 'XA0203', 'LED Verte = ouverture APERIO');
+    assert.equal(p3[10], 'XA0204', 'LED Rouge = refus APERIO');
+    assert.ok(['', '—'].includes(p3[11]), `porte APERIO : pas de buzzer, obtenu « ${p3[11]} »`);
+    assert.deepEqual(porte(1).slice(8, 12), ['XA0101', 'XA0103', 'XA0104', 'XA0105'], 'porte 1 ventouse inchangee');
+  });
+});
+
+test('E16 export CSV : porte APERIO 3 => Relais APERIO, LED XA0203 / XA0204, Buzzer vide', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page }) => {
+    const csv = await page.evaluate(() => {
+      window.__csv = null;
+      window.telechargerContenu = contenu => { window.__csv = contenu; };
+      exporterCSV();
+      return window.__csv;
+    });
+    assert.equal(typeof csv, 'string', 'exporterCSV doit produire un contenu');
+    const lignes = csv.split(/\r?\n/).filter(Boolean).map(l => l.split(';'));
+    const entetes = lignes[0];
+    const porte3 = lignes.find(c => c[1] === '3');
+    assert.ok(porte3, 'ligne de la porte 3 absente du CSV');
+    const col = nom => porte3[entetes.indexOf(nom)];
+    assert.equal(col('Relais'), 'APERIO');
+    assert.equal(col('LED Verte'), 'XA0203');
+    assert.equal(col('LED Rouge'), 'XA0204');
+    assert.equal(col('Buzzer'), '', 'porte APERIO : buzzer vide');
+  });
+});
+
+test('E17 fiche detail de la porte APERIO 3 : type de serrure APERIO, pas « Libre »', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page }) => {
+    const lignes = await page.evaluate(() => {
+      voirDetailPorte(3, 0);
+      if (typeof closeWiringUsagePopup === 'function') closeWiringUsagePopup();
+      return [...document.querySelectorAll('#modal-body .detail-row')].map(row => [
+        (row.querySelector('.detail-key') || {}).textContent?.trim() || '',
+        (row.querySelector('.detail-val') || {}).textContent?.replace(/\s+/g, ' ').trim() || '',
+      ]);
+    });
+    const valeur = cle => (lignes.find(([k]) => k === cle) || [])[1];
+    const type = valeur('Type de serrure') || '';
+    assert.match(type, /APERIO/, `type de serrure : « ${type} »`);
+    assert.doesNotMatch(type, /Libre/i, `type de serrure : « ${type} »`);
+    assert.equal(valeur('Gâche / Serrure'), 'APERIO', 'sortie serrure : APERIO, pas de relais');
+    assert.equal(valeur('LED Verte'), 'XA0203');
+  });
+});
+
+test('E18 schema de cablage de la porte APERIO 3 : serrure APERIO au niveau du relais, sans cable relais ni lecteur', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page }) => {
+    const schema = await page.evaluate(() => {
+      voirDetailPorte(3, 0);
+      if (typeof closeWiringUsagePopup === 'function') closeWiringUsagePopup();
+      const svg = document.querySelector('#modal-body .door-wiring-svg');
+      const lock = svg && svg.querySelector('.io-label-g[data-wiring-kind="lock"]');
+      const rangees = [...document.querySelectorAll('#modal-body .door-wire-row')].map(r => ({
+        borne: (r.querySelector('.door-wire-node.module span') || {}).textContent?.trim() || '',
+        texte: r.textContent.replace(/\s+/g, ' ').trim(),
+      }));
+      return {
+        svg: !!svg,
+        lock: lock ? lock.textContent.replace(/\s+/g, ' ').trim() : null,
+        cableB: svg ? svg.querySelectorAll('polyline[data-seg="b"][data-key="3:R2"]').length : -1,
+        relayRef: svg ? svg.querySelectorAll('[data-seg="relay-ref"][data-key="rr:3:R2"]').length : -1,
+        lecteur: svg ? svg.querySelectorAll('[data-seg="reader-line"]').length : -1,
+        r2: rangees.filter(r => r.borne === 'R2').map(r => r.texte),
+      };
+    });
+    assert.ok(schema.svg, 'precondition : schema de cablage de la porte 3 rendu');
+    assert.ok(schema.lock, 'etiquette de la serrure (data-wiring-kind="lock") absente du schema');
+    assert.match(schema.lock, /SERRURE APERIO/, `etiquette serrure : ${schema.lock}`);
+    assert.doesNotMatch(schema.lock, /CMD/, `etiquette serrure : ${schema.lock}`);
+    assert.equal(schema.cableB, 0, 'aucun cable relais (data-seg="b") sur R2 pour une serrure APERIO');
+    assert.equal(schema.relayRef, 0, 'aucun commun relais (relay-ref) sur R2 pour une serrure APERIO');
+    assert.equal(schema.lecteur, 0, 'aucun cable lecteur : la tete APERIO est dans la serrure');
+    assert.ok(schema.r2.length === 1 && /SERRURE APERIO/.test(schema.r2[0]), `rangee R2 : ${schema.r2.join(' / ')}`);
+  });
+});
+
+test('E19 schema MLP2 A1 fusionne : R1 (porte 1) cable, R2 (porte 3 APERIO) sans cable relais ni lecteur', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page }) => {
+    const vue = await page.evaluate(() => {
+      const t = APP.tillys[0];
+      const ma1 = t.synopticModules.find(m => m.id === 'MA1');
+      const tpl = document.createElement('template');
+      tpl.innerHTML = renderModuleCombinedWiringSection(t, 0, ma1);
+      const svg = tpl.content.querySelector('svg');
+      const compte = sel => (svg ? svg.querySelectorAll(sel).length : -1);
+      const lock3 = svg && svg.querySelector('.io-label-g[data-wiring-kind="lock"][data-wiring-door-num="3"]');
+      return {
+        svg: !!svg,
+        b1: compte('polyline[data-seg="b"][data-key="MA1:R1"]'),
+        rr1: compte('[data-seg="relay-ref"][data-key="rr:MA1:R1"]'),
+        b2: compte('polyline[data-seg="b"][data-key="MA1:R2"]'),
+        rr2: compte('[data-seg="relay-ref"][data-key="rr:MA1:R2"]'),
+        l1: compte('[data-seg="reader-line"][data-key="MA1:L1"]'),
+        l2: compte('[data-seg="reader-line"][data-key="MA1:L2"]'),
+        lock3: lock3 ? lock3.textContent.replace(/\s+/g, ' ').trim() : null,
+      };
+    });
+    assert.ok(vue.svg, 'precondition : schema fusionne rendu');
+    assert.ok(vue.b1 > 0, 'porte 1 : cable relais R1 conserve');
+    assert.ok(vue.rr1 > 0, 'porte 1 : commun relais R1 conserve');
+    assert.ok(vue.l1 > 0, 'porte 1 : cable lecteur L1 conserve');
+    assert.equal(vue.b2, 0, 'porte 3 APERIO : aucun cable relais R2');
+    assert.equal(vue.rr2, 0, 'porte 3 APERIO : aucun commun relais R2');
+    assert.equal(vue.l2, 0, 'porte 3 APERIO : aucun cable lecteur L2');
+    assert.ok(vue.lock3, 'etiquette serrure de la porte 3 absente du schema fusionne');
+    assert.match(vue.lock3, /SERRURE APERIO/, `etiquette serrure porte 3 : ${vue.lock3}`);
+  });
+});
+
+test('E20 carnet de cables : HUB APERIO en Cat 6/6A/7 a la place de la CMD, pas de cable lecteur', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page }) => {
+    // Lecture seule des lignes calculees : aucun export Excel declenche.
+    const lignes = await page.evaluate(() => buildCarnetCableRows()
+      .map(r => ({ code: r.codeDepart, depart: r.depart, type: r.typeCableDepart, arrivee: r.arrivee })));
+    const ligne = code => lignes.find(l => l.code === code);
+    const porte3 = lignes.filter(l => /A_N0_3$/.test(l.code) || l.code === 'LA2' || l.arrivee === 'LA2').map(l => l.code).sort();
+    assert.ok(!ligne('CMD A_N0_3'), 'porte APERIO : plus de ligne CMD A_N0_3');
+    const hub = ligne('HUB APERIO A_N0_3');
+    assert.ok(hub, `ligne HUB APERIO A_N0_3 absente : ${lignes.map(l => l.code).join(' | ')}`);
+    assert.equal(hub.type, 'Cat 6/6A/7');
+    assert.match(hub.depart, /Tillys 1/, 'le HUB APERIO part du coffret / Tillys');
+    assert.deepEqual(porte3, ['BP A_N0_3', 'HUB APERIO A_N0_3'], 'porte 3 : HUB APERIO et BP, aucun cable lecteur');
+    const cmd1 = ligne('CMD A_N0_1');
+    assert.ok(cmd1, 'ligne CMD A_N0_1 absente');
+    assert.equal(cmd1.depart, 'BJ A_N0_1', 'porte 1 inchangee : CMD depuis la boite de jonction');
+  });
+});
+
+test('E21 editeur de porte : choisir le verrouillage APERIO met le lecteur APERIO et retire le lecteur de sortie', OPTIONS, async () => {
+  await avecPage(fx.fixtureBase(TIL), async ({ page }) => {
+    const choisirAperio = num => page.evaluate(n => {
+      ouvrirPorteEditor(n);
+      updatePorteDraft('verrouillage', 'APERIO');
+      const brouillon = { lecteurEntree: PORTES_UI.editingDraft.lecteurEntree, lecteurSortie: PORTES_UI.editingDraft.lecteurSortie };
+      validerPorteEditor();
+      const porte = getTillysActif().portes[n - 1];
+      fermerPorteEditor();
+      return { brouillon, verrouillage: porte.verrouillage, lecteurEntree: porte.lecteurEntree, lecteurSortie: porte.lecteurSortie };
+    }, num);
+
+    const p3 = await choisirAperio(3);
+    assert.equal(p3.verrouillage, 'APERIO', 'precondition : verrouillage APERIO enregistre');
+    assert.equal(p3.brouillon.lecteurEntree, 'APERIO', 'brouillon : lecteur d\'entree APERIO');
+    assert.equal(p3.lecteurEntree, 'APERIO', 'porte 3 : lecteur d\'entree APERIO');
+    assert.equal(p3.lecteurSortie, '', 'porte 3 : pas de lecteur de sortie');
+
+    const p2 = await choisirAperio(2);
+    assert.equal(p2.lecteurEntree, 'APERIO', 'porte 2 : lecteur d\'entree APERIO');
+    assert.equal(p2.lecteurSortie, '', 'porte 2 (deux lecteurs) : lecteur de sortie retire');
+  });
+});
+
+test('E22 generation du code dans la page : APERIO_OPEN puis BIO_STATUS, sans erreur', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page, erreurs }) => {
+    const aperio = await page.evaluate(() => { genererTout(); return document.getElementById('microcode-output').value; });
+    assert.ok(aperio.includes('APERIO_OPEN('), 'microcode APERIO sans APERIO_OPEN(');
+    await chargerTillys(page, fx.fixtureBio(TIL));
+    const bio = await page.evaluate(() => { genererTout(); return document.getElementById('microcode-output').value; });
+    assert.ok(bio.includes('BIO_STATUS_B6'), 'microcode biometrique sans BIO_STATUS_B6');
+    assert.deepEqual(erreurs.map(e => e.message), []);
+  });
+});
+
+test('E23 (non-regression) consommation coffret : porte APERIO 130 mA, lecteur biometrique 360 mA', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page }) => {
+    const total = await page.evaluate(() => getCoffretDoorEquipmentItems(APP.tillys[0].portes[2])
+      .reduce((somme, item) => somme + item.chargeMa, 0));
+    assert.equal(total, 130, 'porte 3 APERIO : lecteur APERIO 130 mA, serrure APERIO 0 mA');
+  });
+  await avecPage(fx.fixtureBio(TIL), async ({ page }) => {
+    const lecteur = await page.evaluate(() => getCoffretDoorEquipmentItems(APP.tillys[0].portes[7])
+      .find(item => item.type === 'Lecteur entrée'));
+    assert.ok(lecteur, 'porte 8 : lecteur d\'entree absent du bilan');
+    assert.equal(lecteur.chargeMa, 360, 'lecteur biometrique : 360 mA');
+  });
+});
+
+// ── Revue APERIO : retour arriere, lecteur de sortie, synoptique ─────────
+
+test('E24 editeur : APERIO puis retour a VENTOUSE => la porte 3 redevient une porte a relais', OPTIONS, async () => {
+  await avecPage(fx.fixtureBase(TIL), async ({ page }) => {
+    const etat = await page.evaluate(() => {
+      ouvrirPorteEditor(3);
+      updatePorteDraft('verrouillage', 'APERIO');
+      const intermediaire = PORTES_UI.editingDraft.lecteurEntree;
+      updatePorteDraft('verrouillage', 'VENTOUSE');
+      validerPorteEditor();
+      fermerPorteEditor();
+      const t = getTillysActif();
+      const porte = t.portes[2];
+      const addr = TIL.getPorteAddresses(t, 3);
+      genererTout();
+      const microcode = document.getElementById('microcode-output').value;
+      voirDetailPorte(3, 0);
+      if (typeof closeWiringUsagePopup === 'function') closeWiringUsagePopup();
+      const svg = document.querySelector('#modal-body .door-wiring-svg');
+      return {
+        intermediaire,
+        verrouillage: porte.verrouillage,
+        lecteurEntree: porte.lecteurEntree,
+        aperio: addr.aperio,
+        lock: addr.lock,
+        microcode,
+        svg: svg ? svg.textContent.replace(/\s+/g, ' ') : null,
+      };
+    });
+    assert.equal(etat.intermediaire, 'APERIO', 'precondition : le choix APERIO pose le lecteur APERIO');
+    assert.equal(etat.verrouillage, 'VENTOUSE', 'precondition : verrouillage VENTOUSE enregistre');
+    assert.equal(etat.lecteurEntree, 'LB', 'retour a VENTOUSE : le lecteur d\'entree redevient LB');
+    assert.equal(etat.aperio, false, 'retour a VENTOUSE : la porte 3 n\'est plus APERIO');
+    assert.equal(etat.lock, 'XA0102', 'retour a VENTOUSE : relais normal XA0102');
+    assert.ok(etat.microcode.includes('XA0102=PULSE('), 'microcode : ouverture par le relais XA0102=PULSE( attendue');
+    assert.ok(etat.svg, 'precondition : schema de cablage de la porte 3 rendu');
+    assert.ok(!etat.svg.includes('SERRURE APERIO'), `schema de la porte 3 encore en SERRURE APERIO : ${etat.svg}`);
+  });
+});
+
+test('E25 editeur : un lecteur de sortie choisi sur une porte APERIO n\'est pas enregistre', OPTIONS, async () => {
+  await avecPage(fx.fixtureAperio(TIL), async ({ page }) => {
+    const porte = await page.evaluate(() => {
+      ouvrirPorteEditor(6);
+      updatePorteDraft('lecteurSortie', 'LB');
+      validerPorteEditor();
+      fermerPorteEditor();
+      const p = getTillysActif().portes[5];
+      return { verrouillage: p.verrouillage, lecteurEntree: p.lecteurEntree, lecteurSortie: p.lecteurSortie };
+    });
+    assert.equal(porte.verrouillage, 'APERIO', 'precondition : porte 6 toujours APERIO');
+    assert.equal(porte.lecteurSortie, '', 'porte APERIO : lecteur de sortie retire a la validation');
+  });
+});
+
+test('E26 porte APERIO chargee avec un lecteur de sortie : ni consommation de sortie ni seconde tete au synoptique', OPTIONS, async () => {
+  const t = fx.fixtureAperio(TIL);
+  t.portes[5].lecteurSortie = 'LB';
+  await avecPage(t, async ({ page }) => {
+    const vue = await page.evaluate(() => {
+      const tillys = APP.tillys[0];
+      const porte = tillys.portes[5];
+      const ma5 = tillys.synopticModules.find(m => m.id === 'MA5');
+      return {
+        verrouillage: porte.verrouillage,
+        types: getCoffretDoorEquipmentItems(porte).map(item => item.type),
+        tetes: getPorteSynopticReaderLabels(porte, 6, tillys, ma5),
+      };
+    });
+    assert.equal(vue.verrouillage, 'APERIO', 'precondition : porte 6 chargee en APERIO');
+    assert.ok(vue.types.includes('Lecteur entrée'), `precondition : lecteur APERIO au bilan : ${vue.types.join(' | ')}`);
+    assert.ok(!vue.types.includes('Lecteur sortie'), `porte APERIO : « Lecteur sortie » compte au bilan coffret : ${vue.types.join(' | ')}`);
+    assert.deepEqual(vue.tetes, ['LA5'], 'porte APERIO : une seule tete au synoptique');
+  });
+});
+
+test('E27 synoptique : la carte de la porte APERIO 6 affiche APERIO, pas « libre »', OPTIONS, async () => {
+  const t = fx.fixtureAperio(TIL);
+  // Designations sans le mot APERIO : seul l'affichage de la serrure peut le montrer.
+  t.portes[5].designation = 'Bureau direction';
+  await avecPage(t, async ({ page }) => {
+    const cartes = await page.evaluate(() => {
+      showTab('tab-synoptic');
+      renderSynoptique();
+      const texte = num => [...document.querySelectorAll(`#synoptic-root [data-drag-porte-num="${num}"]`)]
+        .map(el => el.textContent.replace(/\s+/g, ' ').trim());
+      return { porte6: texte(6), porte1: texte(1) };
+    });
+    assert.ok(cartes.porte6.length > 0, 'precondition : carte de la porte 6 rendue dans le synoptique');
+    cartes.porte6.forEach(texte => {
+      assert.ok(texte.includes('Bureau direction'), `precondition : carte de la porte 6 : ${texte}`);
+      assert.match(texte, /APERIO/, `carte de la porte APERIO 6 sans « APERIO » : ${texte}`);
+      assert.ok(!texte.includes('🔓'), `carte de la porte APERIO 6 avec l'icone libre : ${texte}`);
+      assert.doesNotMatch(texte, /libre/i, `carte de la porte APERIO 6 en « libre » : ${texte}`);
+    });
+    cartes.porte1.forEach(texte => assert.doesNotMatch(texte, /APERIO/, `porte 1 ventouse marquee APERIO : ${texte}`));
+  });
+});
+
+test('E28 porte APERIO chargee avec un lecteur de sortie : la sortie est retiree des donnees et de l\'auto-control', OPTIONS, async () => {
+  const t = fx.fixtureAperio(TIL);
+  t.portes[5].lecteurSortie = 'LB';
+  t.portes[5].numeroSortie = '099';
+  t.portes[0].lecteurSortie = 'LB';
+  await avecPage(t, async ({ page }) => {
+    const vue = await page.evaluate(() => {
+      const tillys = APP.tillys[0];
+      const rows = getAutoControlRows(getAutoControlSnapshot());
+      const lecteurs = num => {
+        // L'auto-control travaille sur une copie du projet : on cherche la ligne par numero de porte.
+        const row = rows.find(r => r.porte && r.porte.num === num);
+        return row ? getAutoControlConfiguredReaders(row).map(r => r.readerDirection) : null;
+      };
+      return {
+        sortieAperio: tillys.portes[5].lecteurSortie,
+        sortieVentouse: tillys.portes[0].lecteurSortie,
+        autoControlAperio: lecteurs(6),
+        autoControlVentouse: lecteurs(1),
+      };
+    });
+    assert.equal(vue.sortieAperio, '', 'porte APERIO : lecteur de sortie retire au chargement');
+    assert.deepEqual(vue.autoControlAperio, ['Entrée'], 'auto-control : un seul lecteur pour la porte APERIO');
+    assert.equal(vue.sortieVentouse, 'LB', 'non-regression : une porte a relais garde son lecteur de sortie');
+    assert.deepEqual(vue.autoControlVentouse, ['Entrée', 'Sortie'], 'non-regression : auto-control de la porte a relais');
   });
 });

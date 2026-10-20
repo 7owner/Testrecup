@@ -120,6 +120,59 @@ function fixtureSansPorteActive(TIL) {
   return TIL.creerTillys(0, 'Tillys 1');
 }
 
+// Valeurs d'une porte APERIO telles que l'editeur les pose : la serrure APERIO
+// est aussi la tete de lecture (typeSerrure 'libre' = ce que pose aujourd'hui
+// mapVerrouillageVersTypeSerrure pour un verrouillage hors ventouse / aligator).
+const PORTE_APERIO = { verrouillage: 'APERIO', lecteurEntree: 'APERIO', lecteurSortie: '', typeSerrure: 'libre' };
+
+// Fixture de reference avec deux portes APERIO :
+//  - porte 3 (A_N0_3) au rang 1 du MLP2 A1 (LA2), avec BP
+//  - porte 6 (A_N0_6) au rang 0 d'un MLP2 A5 (LA5), avec BP et DM (exemple doc 3.1)
+// La porte 1 (ventouse) reste inchangee sur le meme MLP2 que la porte 3.
+function fixtureAperio(TIL) {
+  const t = fixtureBase(TIL);
+  Object.assign(t.portes[2], PORTE_APERIO, { bp: 1 });
+  configurerPorte(t, 6, {
+    designation: 'Bureau APERIO', batiment: 'A', etage: 'N0', numeroPorte: '6',
+    ...PORTE_APERIO, bp: 1, dm: 1,
+    mlp2ModuleId: 'MA5', mlp2Attribue: 'MLP2 A5',
+  });
+  t.synopticModules.push(moduleMLP2('MA5', 'A', 5, [6]));
+  return t;
+}
+
+// Porte 5 APERIO sur un MLP2 du bus B a l'adresse 1 (LB1, tete 9 : exemple doc 3.2).
+function fixtureAperioBusB(TIL) {
+  const t = fixtureBase(TIL);
+  configurerPorte(t, 5, {
+    designation: 'Porte APERIO bus B', batiment: 'B', etage: 'N1', numeroPorte: '5',
+    ...PORTE_APERIO, bp: 1,
+    mlp2ModuleId: 'MB1', mlp2Attribue: 'MLP2 B1',
+  });
+  t.synopticModules.push(moduleMLP2('MB1', 'B', 1, [5]));
+  return t;
+}
+
+// Lecteurs biometriques :
+//  - portes 7 (rang 0, LB5, badge) et 8 (rang 1, LB6, biometrique) sur un MLP2 B5
+//  - porte 2 (MLP2 A3) avec un lecteur de sortie biometrique (LA4)
+function fixtureBio(TIL) {
+  const t = fixtureBase(TIL);
+  t.portes[1].lecteurSortie = 'LBio';
+  configurerPorte(t, 7, {
+    designation: 'Labo badge', batiment: 'B', etage: 'N0', numeroPorte: '7',
+    verrouillage: 'VENTOUSE', lecteurEntree: 'LB',
+    mlp2ModuleId: 'MB5', mlp2Attribue: 'MLP2 B5',
+  });
+  configurerPorte(t, 8, {
+    designation: 'Salle serveurs', batiment: 'B', etage: 'N0', numeroPorte: '8',
+    verrouillage: 'VENTOUSE', lecteurEntree: 'LBio',
+    mlp2ModuleId: 'MB5', mlp2Attribue: 'MLP2 B5',
+  });
+  t.synopticModules.push(moduleMLP2('MB5', 'B', 5, [7, 8]));
+  return t;
+}
+
 module.exports = {
   fixtureBase,
   fixtureBusB,
@@ -131,4 +184,7 @@ module.exports = {
   fixtureModulesTerrain,
   fixture24Portes,
   fixtureSansPorteActive,
+  fixtureAperio,
+  fixtureAperioBusB,
+  fixtureBio,
 };

@@ -28,8 +28,12 @@ function registreValide(reg) {
   return false;
 }
 
+// Tete de lecture 1..24 (SET_RDR_COLOR, PESCORT, PCLV, APERIO_OPEN / APERIO_CLOSE).
+const teteValide = n => Number(n) >= 1 && Number(n) <= 24;
+
 function controlerSyntaxe(code, note) {
-  const lignes = code.split('\n').map(l => l.replace(/;.*$/, '').trim()).filter(Boolean);
+  // Espaces internes ignores : APERIO_OPEN( 5 , 5 ) vaut APERIO_OPEN(5,5).
+  const lignes = code.split('\n').map(l => l.replace(/;.*$/, '').replace(/\s+/g, '')).filter(Boolean);
   let niveauSi = 0;
   let pulses = 0;
   const timersArmes = new Set();
@@ -42,6 +46,23 @@ function controlerSyntaxe(code, note) {
     }
     if ((m = l.match(/^(PESCORT|PCLV)(\d+)=[\d,]+$/))) {
       if (Number(m[2]) < 1 || Number(m[2]) > 24) note('ERREUR', `${m[1]} hors 1..24 : ${l}`);
+      return;
+    }
+    // Serrure APERIO pilotee par sa tete de lecture (firmware >= 4.2.0).
+    if ((m = l.match(/^APERIO_OPEN\((\d+),(\d+)\)$/))) {
+      if (!teteValide(m[1])) note('ERREUR', `APERIO_OPEN hors 1..24 : ${l}`);
+      if (Number(m[2]) < 1) note('ERREUR', `APERIO_OPEN sans duree : ${l}`);
+      return;
+    }
+    if ((m = l.match(/^APERIO_CLOSE\((\d+)\)$/))) {
+      if (!teteValide(m[1])) note('ERREUR', `APERIO_CLOSE hors 1..24 : ${l}`);
+      return;
+    }
+    // Lecteur biometrique : statut 00, 01 ou 02 sur un lecteur 1..8 du bus.
+    if ((m = l.match(/^SI\(BIO_STATUS_([ABC])(\d+)==(\d+)\)$/))) {
+      niveauSi += 1;
+      if (Number(m[2]) < 1 || Number(m[2]) > 8) note('ERREUR', `BIO_STATUS hors lecteurs 1..8 : ${l}`);
+      if (!/^0[0-2]$/.test(m[3])) note('ERREUR', `BIO_STATUS inconnu (00, 01 ou 02 attendu) : ${l}`);
       return;
     }
     if ((m = l.match(/^EV\((\w+)(?:==(\w+))?\)$/))) {
@@ -69,6 +90,89 @@ function controlerSyntaxe(code, note) {
   timersArmes.forEach(tn => { if (!timersEv.has(tn)) note('ERREUR', `${tn} arme sans EV(${tn})`); });
   timersEv.forEach(tn => { if (!timersArmes.has(tn)) note('ERREUR', `EV(${tn}) sans armement`); });
   return { pulses, timers: timersArmes.size };
+}
+
+// Porte APERIO : serrure APERIO ou lecteur APERIO (la serrure est la tete de lecture).
+function estPorteAperio(p) {
+  return [p.verrouillage, p.lecteurEntree].some(v => String(v || '').trim().toUpperCase() === 'APERIO');
+}
+
+// Instructions d'un bloc de porte, sans titre, commentaires ni espaces.
+function instructionsBloc(bloc) {
+  return bloc.split('\n').slice(1).map(l => l.replace(/;.*$/, '').replace(/\s+/g, '')).filter(Boolean);
+}
+
+// Instructions d'un evenement : de EV(...) exclu au prochain EV( exclu, ou null.
+function instructionsEvenement(liste, ev) {
+  const debut = liste.indexOf(ev);
+  if (debut < 0) return null;
+  const suite = liste.slice(debut + 1);
+  const fin = suite.findIndex(l => l.startsWith('EV('));
+  return fin === -1 ? suite : suite.slice(0, fin);
+}
+
+// Serrure APERIO = tete de lecture de la porte (MS_Cube, exemples 3.1 / 3.2) :
+// X{bus}{lecteurLocal}03 ouvre, ...04 refuse, APERIO_OPEN(tete, s) pour BP et
+// hyperviseur, aucun relais ni buzzer du MLP2.
+function controlerPorteAperio(p, d, id, liste, regs, options, note) {
+  const yy = String(d.lecteurLocal).padStart(2, '0');
+  const ouverture = `X${d.bus}${yy}03`;
+  const refus = `X${d.bus}${yy}04`;
+  if (d.aperio !== true) note('ERREUR', `${id} : porte APERIO sans drapeau aperio dans le tableau d'adresses`);
+  if (d.lock) note('ERREUR', `${id} : porte APERIO avec un relais ${d.lock}`);
+  if (d.buzzer) note('ERREUR', `${id} : porte APERIO avec un buzzer ${d.buzzer}`);
+  if (d.ledVert !== ouverture) note('ERREUR', `${id} : ouverture APERIO ${d.ledVert} au lieu de ${ouverture}`);
+  if (d.ledRouge !== refus) note('ERREUR', `${id} : refus APERIO ${d.ledRouge} au lieu de ${refus}`);
+  regs.forEach(r => {
+    const m = r.match(/^X[ABC]\d{2}(\d{2})$/);
+    if (m && (m[1] === '01' || m[1] === '02')) note('ERREUR', `${id} : registre relais ${r} sur une porte APERIO`);
+  });
+
+  const pulse = p.dureePulse || (options && options.pulse) || 50;
+  liste.forEach(l => {
+    let m;
+    if ((m = l.match(/^APERIO_OPEN\((\d+),(\d+)\)$/))) {
+      if (Number(m[1]) !== d.lecteurNum) note('ERREUR', `${id} : ${l} au lieu de la tete ${d.lecteurNum}`);
+      if (pulse % 10 === 0 && Number(m[2]) !== pulse / 10) note('ERREUR', `${id} : ${l} au lieu de ${pulse / 10} s`);
+    }
+    if ((m = l.match(/^(X[ABC]\d{4})=PULSE\((\d+)\)$/)) && m[1] === ouverture && Number(m[2]) > 50) {
+      note('ERREUR', `${id} : ${l} depasse le PULSE APERIO maximal (50)`);
+    }
+    if (l === `${ouverture}=1` || l === `${refus}=1`) note('ERREUR', `${id} : ${l} interdit sur une serrure APERIO`);
+  });
+
+  const ouvreParAperio = (ev, quoi) => {
+    const lignes = instructionsEvenement(liste, ev);
+    if (!lignes) { note('ERREUR', `${id} : ${quoi} sans ${ev}`); return; }
+    if (!lignes.some(l => l.startsWith('APERIO_OPEN('))) note('ERREUR', `${id} : ${quoi} sans APERIO_OPEN`);
+  };
+  const actif = p.commandPolarity === 'inverted' || (options && options.commandPolarity === 'inverted') ? 0 : 1;
+  if (p.cmdHyperActif !== false) ouvreParAperio(`EV(${d.cmdHyper}==${actif})`, 'commande hyperviseur');
+  if (Number(p.bp) === 1) ouvreParAperio(`EV(${d.bp}==1)`, 'bouton poussoir');
+  if (p.mode === 'visiteur') ouvreParAperio(`EV(${d.lecteur}==VISIT_AUTORISE)`, 'visiteur autorise');
+  if (p.effractionActive !== false && !liste.includes(`SI(${ouverture}==0)`)) {
+    note('ERREUR', `${id} : effraction APERIO sans SI(${ouverture}==0)`);
+  }
+}
+
+// Lecteur biometrique (LBio) : l'ouverture n'a lieu que si BIO_STATUS == 00 ;
+// sous INTERDIT, signalisation selon BIO_STATUS 01, 02 et 00.
+function controlerBiometrie(p, d, id, liste, note) {
+  [[p.lecteurEntree, d.lecteur], [p.lecteurSortie, d.lecteurSortie]].forEach(([type, lecteur]) => {
+    if (!lecteur) return;
+    const statut = `BIO_STATUS_${lecteur.slice(1)}`;
+    if (String(type || '').trim().toUpperCase() !== 'LBIO') {
+      if (liste.some(l => l.includes(`${statut}==`))) note('ERREUR', `${id} : ${statut} sur un lecteur non biometrique ${lecteur}`);
+      return;
+    }
+    const autorise = instructionsEvenement(liste, `EV(${lecteur}==AUTORISE)`);
+    if (!autorise) { note('ERREUR', `${id} : lecteur biometrique ${lecteur} sans EV(${lecteur}==AUTORISE)`); return; }
+    if (autorise[0] !== `SI(${statut}==00)`) note('ERREUR', `${id} : ${lecteur} AUTORISE sans SI(${statut}==00) en tete`);
+    const interdit = instructionsEvenement(liste, `EV(${lecteur}==INTERDIT)`) || [];
+    ['01', '02', '00'].forEach(v => {
+      if (!interdit.includes(`SI(${statut}==${v})`)) note('ERREUR', `${id} : ${lecteur} INTERDIT sans SI(${statut}==${v})`);
+    });
+  });
 }
 
 function controlerTillys(TIL, tillys, options) {
@@ -110,7 +214,8 @@ function controlerTillys(TIL, tillys, options) {
     if (Number(p.bp) === 1) attendus.push(d.bp);
     if (d.lecteurSortie) attendus.push(d.lecteurSortie, d.ledVertSortie, d.ledRougeSortie);
     attendus.filter(Boolean).forEach(r => { if (!regs.has(r)) note('ERREUR', `${id} : ${r} du tableau absent du microcode`); });
-    const permis = new Set([...attendus, d.buzzer, d.capteur].filter(Boolean));
+    // Le buzzer de sortie sert au lecteur biometrique de sortie (BIO_STATUS 02).
+    const permis = new Set([...attendus, d.buzzer, d.capteur, d.buzzerSortie].filter(Boolean));
     regs.forEach(r => { if (!permis.has(r)) note('ERREUR', `${id} : ${r} utilise mais absent du tableau`); });
     if (p.cmdHyperActif === false && regs.has(d.cmdHyper)) note('ERREUR', `${id} : commande hyperviseur desactivee mais ${d.cmdHyper} present`);
     if (!timerPotl && regs.has(d.timer)) note('ERREUR', `${id} : Timer / POTL desactive mais ${d.timer} present`);
@@ -139,6 +244,10 @@ function controlerTillys(TIL, tillys, options) {
     });
     if (p.mode === 'visiteur' && !new RegExp(`^PESCORT${d.lecteurNum}=`, 'm').test(code)) note('ERREUR', `${id} : visiteur sans PESCORT${d.lecteurNum}`);
 
+    const liste = instructionsBloc(bloc);
+    if (estPorteAperio(p)) controlerPorteAperio(p, d, id, liste, regs, options, note);
+    else controlerBiometrie(p, d, id, liste, note);
+
     // Aucun materiel ni registre partage entre deux portes.
     [d.lock, d.ledVert, d.ledRouge, d.buzzer, d.capteur, d.lecteur, d.cmdHyper, d.timer, d.regEffrac, d.regPotl,
       Number(p.bp) === 1 && d.bp, Number(p.dm) === 1 && d.dm, Number(p.barreAntiPanique) === 1 && d.ap,
@@ -164,7 +273,13 @@ function controlerTillys(TIL, tillys, options) {
 
 // Projet aleatoire valide : memes contraintes que l'application (MLP2 a 1 ou
 // 2 tetes, porte a 2 lecteurs seule sur un MLP2 2L, adresses de l'allocateur).
-function projetAleatoire(TIL, graine) {
+// Options :
+//  - biometrie : garde les lecteurs LBio tires au sort (sinon LB, meme tirage) et
+//    autorise un lecteur de sortie LBio ;
+//  - aperio : ajoute des portes APERIO (serrure + lecteur, ou lecteur seul) et
+//    fait varier la duree d'ouverture (plafond PULSE 50 des serrures APERIO).
+// Sans option, la suite des tirages est celle d'origine (S4 inchange).
+function projetAleatoire(TIL, graine, { aperio = false, biometrie = false } = {}) {
   let s = graine;
   const r = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
   const choix = a => a[Math.floor(r() * a.length)];
@@ -183,12 +298,20 @@ function projetAleatoire(TIL, graine) {
       let tetes = slots;
       while (tetes > 0 && num <= 24) {
         const deux = tetes === 2 && module.doorNums.length === 0 && r() < 0.3;
-        Object.assign(t.portes[num - 1], {
+        const porte = t.portes[num - 1];
+        Object.assign(porte, {
           active: r() < 0.9, batiment: choix(['A', 'B']), etage: choix(['N0', 'N1']), numeroPorte: String(100 + num),
-          designation: `Porte ${num}`, lecteurEntree: choix(['LB', 'LB', 'LCode', 'LBio']), lecteurSortie: deux ? choix(['LB', 'LCode']) : '',
+          designation: `Porte ${num}`, lecteurEntree: choix(['LB', 'LB', 'LCode', 'LBio']), lecteurSortie: deux ? choix(biometrie ? ['LB', 'LCode', 'LBio'] : ['LB', 'LCode']) : '',
           bp: r() < 0.5 ? 1 : 0, dm: r() < 0.5 ? 1 : 0, barreAntiPanique: r() < 0.2 ? 1 : 0, mode: r() < 0.2 ? 'visiteur' : 'standard',
           cmdHyperActif: r() > 0.1, timerActif: r() > 0.15, potlActif: r() > 0.15, effractionActive: r() > 0.15, mlp2ModuleId: module.id,
         });
+        if (!biometrie && porte.lecteurEntree === 'LBio') porte.lecteurEntree = 'LB';
+        if (aperio) {
+          const u = r();
+          if (u < 0.15) Object.assign(porte, { verrouillage: 'APERIO', lecteurEntree: 'APERIO', lecteurSortie: '', typeSerrure: 'libre' });
+          else if (u < 0.22) Object.assign(porte, { lecteurEntree: 'APERIO', lecteurSortie: '' });
+          porte.dureePulse = choix([50, 50, 30, 100]);
+        }
         module.doorNums.push(num);
         tetes -= deux ? 2 : 1;
         num += 1;
@@ -201,4 +324,4 @@ function projetAleatoire(TIL, graine) {
   return t;
 }
 
-module.exports = { registreValide, controlerTillys, projetAleatoire };
+module.exports = { registreValide, controlerSyntaxe, controlerTillys, projetAleatoire, estPorteAperio };

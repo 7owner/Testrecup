@@ -7,7 +7,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { chargerGenerator } = require('./helpers/charger-generator');
 const fx = require('./helpers/fixtures');
-const { registreValide, controlerTillys, projetAleatoire } = require('./helpers/coherence');
+const { registreValide, controlerSyntaxe, controlerTillys, projetAleatoire, estPorteAperio } = require('./helpers/coherence');
 
 const TIL = chargerGenerator();
 const OPTIONS = { pulse: 50, potl: 300, escort: 10, milestone: false, commandPolarity: 'normal' };
@@ -50,6 +50,52 @@ test('S4 300 projets aleatoires valides : aucune incoherence', () => {
     portes += resultat.portes;
     problemes(resultat).forEach(m => { if (erreurs.length < 10) erreurs.push(`graine ${graine} : ${m}`); });
   }
+  assert.deepEqual(erreurs, []);
+  assert.ok(portes > 1000, `trop peu de portes generees (${portes})`);
+});
+
+// ── APERIO et biometrie ────────────────────────────────────────────────
+
+test('S5 syntaxe APERIO_OPEN / APERIO_CLOSE / BIO_STATUS : formes acceptees et refusees', () => {
+  const constats = code => {
+    const notes = [];
+    controlerSyntaxe(code, (gravite, message) => notes.push(message));
+    return notes;
+  };
+  // Un SI isole serait refuse pour SI / FINSI desequilibres : il est ferme ici.
+  const si = condition => [`SI(${condition})`, 'FINSI'].join('\n');
+  ['APERIO_OPEN(1,5)', 'APERIO_OPEN(24,3600)', 'APERIO_CLOSE(9)', 'APERIO_OPEN( 5 , 5 )',
+    si('BIO_STATUS_B6==00'), si('BIO_STATUS_A1==01'), si('BIO_STATUS_C8==02')]
+    .forEach(code => assert.deepEqual(constats(code), [], `accepte : ${code}`));
+  ['APERIO_OPEN(25,5)', 'APERIO_OPEN(0,5)', 'APERIO_CLOSE(25)', si('BIO_STATUS_B9==00'), si('BIO_STATUS_B6==03'), 'XA053=PULSE(10)']
+    .forEach(code => assert.ok(constats(code).length > 0, `refuse : ${code}`));
+});
+
+test('S6 fixtures APERIO (bus A, bus B) et biometrie : microcode coherent avec le tableau et le systeme', () => {
+  [fx.fixtureAperio, fx.fixtureAperioBusB, fx.fixtureBio].forEach(fabrique => {
+    const resultat = controlerTillys(TIL, fabrique(TIL), OPTIONS);
+    assert.deepEqual(problemes(resultat), [], fabrique.name);
+    assert.ok(resultat.portes > 0, `${fabrique.name} : aucune porte generee`);
+  });
+});
+
+test('S7 300 projets aleatoires avec portes APERIO et lecteurs biometriques : aucune incoherence', () => {
+  let portes = 0;
+  let aperio = 0;
+  let bio = 0;
+  const erreurs = [];
+  for (let graine = 1; graine <= 300; graine += 1) {
+    const t = projetAleatoire(TIL, graine, { aperio: true, biometrie: true });
+    t.portes.filter(p => p.active && p.mlp2ModuleId).forEach(p => {
+      if (estPorteAperio(p)) aperio += 1;
+      if (p.lecteurEntree === 'LBio' || p.lecteurSortie === 'LBio') bio += 1;
+    });
+    const resultat = controlerTillys(TIL, t, OPTIONS);
+    portes += resultat.portes;
+    problemes(resultat).forEach(m => { if (erreurs.length < 10) erreurs.push(`graine ${graine} : ${m}`); });
+  }
+  assert.ok(aperio > 100, `precondition : trop peu de portes APERIO tirees (${aperio})`);
+  assert.ok(bio > 100, `precondition : trop peu de lecteurs biometriques tires (${bio})`);
   assert.deepEqual(erreurs, []);
   assert.ok(portes > 1000, `trop peu de portes generees (${portes})`);
 });

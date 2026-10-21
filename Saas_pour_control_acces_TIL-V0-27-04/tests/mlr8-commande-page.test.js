@@ -1,9 +1,10 @@
 'use strict';
 
 // Logiciel TIL V2 : porte « commande seule » sur un relais de MLR8 dans
-// app/index.html (Playwright). FE1 a FE20.
+// app/index.html (Playwright). FE1 a FE25.
 // Fixture : porte 4 (A_N0_4, « Portail parking ») sur le relais 3 du MLR8 A9,
-// relais XA0903, commande hyperviseur M28 (24 + 4). Aucun export Excel.
+// relais XA0903, commande hyperviseur M28 (24 + 4). FE22 relit le fichier
+// Excel telecharge (jamais ouvert dans Excel).
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { chargerGenerator } = require('./helpers/charger-generator');
@@ -575,4 +576,267 @@ test('FE20 editeur : un MLP2 plein refuse la porte 4 commande seule sans lui fai
       assert.ok(etat.mr9.includes(4), `${nom} : apres validation, porte 4 retiree du MLR8 A9 : doorNums ${etat.mr9.join(',')}`);
     });
   }
+});
+
+// ── Troisieme revue : panneau « MLP2 associé », export Excel, conflit MLP2 ──
+
+// Lit le panneau « Tillys / MLP2 » rendu par la vue du meme nom. L'onglet
+// Portes qui l'heberge est retire de la navigation (TABS_RETIRES) mais reste
+// rendu apres chaque affectation : on lit son DOM via setPortesView('mlp2'),
+// le gestionnaire du bouton « Tillys / MLP2 ».
+async function lirePanneauMlp2(page) {
+  await page.evaluate(() => { PORTES_UI.busFilter = 'ALL'; setPortesView('mlp2'); });
+  await page.waitForFunction(() => document.querySelectorAll('#portes-mlp2-association .portes-mlp2-row').length === 5);
+  return page.evaluate(() => {
+    const ligne = n => {
+      const row = [...document.querySelectorAll('#portes-mlp2-association .portes-mlp2-row')]
+        .find(r => [...r.querySelectorAll('button')].some(b => (b.getAttribute('onclick') || '').replace(/\s+/g, '') === `ouvrirPorteDepuisProjet(0,${n})`));
+      if (!row) return null;
+      if (row.classList.contains('is-missing')) return 'is-missing';
+      return row.classList.contains('is-linked') ? 'is-linked' : row.className;
+    };
+    const sousTitre = (document.querySelector('#portes-mlp2-association .portes-mlp2-subtitle') || {}).textContent || '';
+    return {
+      sousTitre: sousTitre.replace(/\s+/g, ' ').trim(),
+      lignes: { 1: ligne(1), 4: ligne(4), 10: ligne(10) },
+      commandeSeule: !!TIL.getPorteAddresses(getTillysActif(), 4).commandeSeule,
+    };
+  });
+}
+
+test('FE21 panneau « MLP2 associé » : la commande seule sur relais n\'est ni comptee ni marquee « sans MLP2 »', OPTIONS, async () => {
+  const cas = [['nouveau projet', fx.fixtureMlr8Commande(TIL)], ['projet existant', fixtureMlr8Existant()]];
+  for (const [nom, fixture] of cas) {
+    await avecPage(fixture, async ({ page, erreurs }) => {
+      const panneau = await lirePanneauMlp2(page);
+      assert.equal(panneau.commandeSeule, true, `${nom} : precondition : la porte 4 est une commande seule`);
+      assert.equal(panneau.lignes[1], 'is-linked', `${nom} : precondition : la porte 1 (MLP2 A1) est affectee`);
+      assert.equal(panneau.lignes[10], 'is-missing', `${nom} : precondition : la porte 10 orpheline est sans module`);
+      const m = panneau.sousTitre.match(/(\d+) porte\(s\) active\(s\), (\d+) sans MLP2/);
+      assert.ok(m, `${nom} : sous-titre du panneau illisible : « ${panneau.sousTitre} »`);
+      assert.equal(Number(m[1]), 5, `${nom} : precondition : 5 portes actives (1, 2, 3, 4, 10)`);
+      assert.equal(Number(m[2]), 1, `${nom} : compteur « sans MLP2 » : seule la porte 10 doit compter (« ${panneau.sousTitre} »)`);
+      assert.equal(panneau.lignes[4], 'is-linked', `${nom} : la porte 4 sur relais de MLR8 est affichee « ${panneau.lignes[4]} »`);
+      assert.deepEqual(erreurs.map(e => e.message), [], `${nom} : erreurs JS`);
+    });
+  }
+});
+
+// Clique « Exporter Excel » de la liste des portes et relit le fichier
+// telecharge (feuille LISTE DE PORTE), sans lancer Excel.
+async function telechargerListeExcel(page) {
+  await page.evaluate(() => showTab('tab-liste-portes'));
+  const [telechargement] = await Promise.all([
+    page.waitForEvent('download', { timeout: 10000 }),
+    page.locator('#tab-liste-portes button', { hasText: 'Exporter Excel' }).click(),
+  ]);
+  const fichier = await telechargement.path();
+  const XLSXN = require(require('path').join(require('./helpers/racine').getRacineApp(), 'app', 'vendor', 'xlsx.full.min.js'));
+  const wb = XLSXN.read(require('fs').readFileSync(fichier));
+  assert.deepEqual(wb.SheetNames, ['LISTE DE PORTE'], 'precondition : feuille LISTE DE PORTE');
+  const lignes = XLSXN.utils.sheet_to_json(wb.Sheets['LISTE DE PORTE'], { header: 1, defval: '' });
+  const entetes = lignes[1];
+  const colonne = (libelle, rang = 0) => entetes.reduce((acc, v, i) => (v === libelle ? [...acc, i] : acc), [])[rang];
+  const col = {
+    lecteurEntree: colonne('LECTEUR', 0), lecteurSortie: colonne('LECTEUR', 1),
+    bp: colonne('BP'), dm: colonne('DM'), bap: colonne('BARRE ANTI PANIQUE'), module: colonne('MLP2'),
+  };
+  Object.entries(col).forEach(([nom, i]) => assert.ok(Number.isInteger(i), `precondition : colonne ${nom} absente des en-tetes`));
+  const porte = designation => {
+    const ligne = lignes.slice(2).find(l => l[4] === designation);
+    assert.ok(ligne, `ligne « ${designation} » absente de l'export`);
+    const lire = i => String(ligne[i]).trim();
+    return {
+      lecteurEntree: lire(col.lecteurEntree), lecteurSortie: lire(col.lecteurSortie),
+      bp: lire(col.bp), dm: lire(col.dm), bap: lire(col.bap), module: lire(col.module),
+    };
+  };
+  return { porte };
+}
+
+test('FE22 export Excel LISTE DE PORTE : commande seule sans lecteur, BP, DM ni barre anti panique ; ML « MLR8 A9 – Rn »', OPTIONS, async () => {
+  // Nouveau projet (R3) avec equipements saisis a tort, et projet existant (R1 attribue par le generateur).
+  const nouveau = fx.fixtureMlr8Commande(TIL);
+  Object.assign(nouveau.portes[3], { lecteurEntree: 'LB', lecteurSortie: 'LB', bp: 1, dm: 1, barreAntiPanique: 1 });
+  const cas = [['nouveau projet', nouveau, 3], ['projet existant', fixtureMlr8Existant(), 1]];
+  const VIDE_EXCEL = ['', '-'];
+  for (const [nom, fixture, relais] of cas) {
+    await avecPage(fixture, async ({ page, erreurs }) => {
+      const commandeSeule = await page.evaluate(() => !!TIL.getPorteAddresses(getTillysActif(), 4).commandeSeule);
+      assert.equal(commandeSeule, true, `${nom} : precondition : la porte 4 est une commande seule`);
+      const { porte } = await telechargerListeExcel(page);
+      const temoin = porte('Local Velos');
+      assert.deepEqual([temoin.lecteurEntree, temoin.bp, temoin.dm], ['LB', '1', '1'], `${nom} : precondition : porte 1 avec LB, BP et DM`);
+      assert.match(temoin.module, /^MLP2 A1\b/, `${nom} : precondition : porte 1 sur le MLP2 A1`);
+      const p4 = porte('Portail parking');
+      assert.ok(p4.module.startsWith(`MLR8 A9 – R${relais}`), `${nom} : colonne ML de la porte 4 : « ${p4.module} »`);
+      [['lecteurEntree', 'LECTEUR (entree)'], ['lecteurSortie', 'LECTEUR (sortie)'], ['bp', 'BP'], ['dm', 'DM'], ['bap', 'BARRE ANTI PANIQUE']]
+        .forEach(([champ, libelle]) => {
+          assert.ok(VIDE_EXCEL.includes(p4[champ]), `${nom} : porte 4 commande seule, colonne ${libelle} : « ${p4[champ]} » (attendu vide ou « - »)`);
+        });
+      assert.deepEqual(erreurs.map(e => e.message), [], `${nom} : erreurs JS`);
+    });
+  }
+});
+
+// Etat lisible d'une porte stockee et du projet, pour les scenarios de conflit.
+async function installerEtatConflit(page) {
+  await page.evaluate(() => {
+    window.__porteStockee = (ti, num) => {
+      const t = APP.tillys[ti];
+      const p = t && t.portes[num - 1];
+      if (!p) return null;
+      const a = TIL.getPorteAddresses(t, num);
+      const module = (t.synopticModules || []).find(m => m.id === p.mlp2ModuleId) || null;
+      return {
+        active: !!p.active, designation: p.designation,
+        lecteurEntree: p.lecteurEntree || '', bp: Number(p.bp || 0), dm: Number(p.dm || 0),
+        mlr8Cles: Object.keys(p).filter(k => /^mlr8/i.test(k)),
+        module: module ? { type: module.type, name: module.name, doorNums: [...(module.doorNums || [])] } : null,
+        commandeSeule: !!a.commandeSeule,
+      };
+    };
+    window.__mr9 = () => [...APP.tillys[0].synopticModules.find(m => m.id === 'MR9').doorNums];
+    window.__modalConflitOuverte = () => {
+      const modal = document.getElementById('mlp2-conflict-modal');
+      return !!(modal && modal.classList.contains('open'));
+    };
+  });
+}
+
+// Bus A sature : MLP2 A5 et A7 occupes chacun par une porte a deux lecteurs.
+function fixtureBusASature(t) {
+  [[5, 'MA5'], [6, 'MA7']].forEach(([num, id]) => {
+    Object.assign(t.portes[num - 1], {
+      active: true, designation: `Porte saturee ${num}`, batiment: 'A', etage: 'N0', numeroPorte: String(num),
+      verrouillage: 'VENTOUSE', lecteurEntree: 'LB', lecteurSortie: 'LB', mlp2ModuleId: id, mlp2Attribue: `MLP2 A${id.slice(2)}`,
+    });
+  });
+  t.synopticModules.push(
+    { id: 'MA5', type: 'MLP2', bus: 'A', address: 5, name: 'MLP2 A5', readerSlots: 2, doorNums: [5] },
+    { id: 'MA7', type: 'MLP2', bus: 'A', address: 7, name: 'MLP2 A7', readerSlots: 2, doorNums: [6] },
+  );
+  return t;
+}
+
+// Le MLP2 plein est grise dans « ML associé » : on reproduit son onchange
+// (assignerPorteAuMlp2Draft), qui ouvre la fenetre de conflit.
+async function choisirMlp2Plein(page, valeur) {
+  await page.evaluate(v => assignerPorteAuMlp2Draft(v), valeur);
+  await page.waitForFunction(() => window.__modalConflitOuverte());
+}
+
+async function validerEditeurParClic(page) {
+  await page.locator('button[onclick="validerPorteEditor()"]').click();
+}
+
+test('FE23 (caracterisation) conflit MLP2 depuis la commande seule : « Créer MLP2 … et affecter » detache la porte 4 du relais', OPTIONS, async () => {
+  await avecPage(fx.fixtureMlr8Commande(TIL), async ({ page, erreurs }) => {
+    await installerEtatConflit(page);
+    await page.evaluate(() => ouvrirPorteEditor(4, 'hardware'));
+    assert.deepEqual(await page.evaluate(() => window.__mr9()), [4], 'precondition : porte 4 sur le MLR8 A9');
+    await choisirMlp2Plein(page, 'module:MA1');
+    const bouton = page.locator('#mlp2-conflict-body button', { hasText: 'Créer' });
+    assert.equal(await bouton.count(), 1, 'precondition : bouton « Créer MLP2 … et affecter » propose');
+    const libelle = (await bouton.textContent()).trim();
+    assert.match(libelle, /^Créer MLP2 A\d et affecter$/, `precondition : libelle du bouton « ${libelle} »`);
+    await bouton.click();
+    assert.equal(await page.evaluate(() => window.__modalConflitOuverte()), false, 'la fenetre de conflit reste ouverte apres le clic');
+    await validerEditeurParClic(page);
+    const etat = await page.evaluate(() => ({ nbTillys: APP.tillys.length, porte: window.__porteStockee(0, 4), mr9: window.__mr9() }));
+    const nomCree = libelle.replace(/^Créer /, '').replace(/ et affecter$/, '');
+    assert.equal(etat.nbTillys, 1, 'aucune Tillys creee');
+    assert.ok(etat.porte && etat.porte.active, 'porte 4 inactive apres affectation');
+    assert.equal(etat.porte.designation, 'Portail parking');
+    assert.deepEqual(etat.porte.module && { type: etat.porte.module.type, name: etat.porte.module.name }, { type: 'MLP2', name: nomCree },
+      `porte 4 sur le MLP2 cree (${JSON.stringify(etat.porte.module)})`);
+    assert.ok(etat.porte.module.doorNums.includes(4), 'le MLP2 cree ne liste pas la porte 4');
+    assert.deepEqual(etat.mr9, [], `MLR8 A9 garde la porte : doorNums ${etat.mr9.join(',')}`);
+    assert.deepEqual(etat.porte.mlr8Cles, [], `cles mlr8* stockees : ${etat.porte.mlr8Cles.join(', ')}`);
+    assert.equal(etat.porte.commandeSeule, false, 'porte 4 encore commande seule');
+    assert.deepEqual(erreurs.map(e => e.message), [], 'erreurs JS');
+  });
+});
+
+test('FE24 (caracterisation) conflit MLP2 depuis la commande seule, bus sature : « Créer une Tillys + MLP2 » emporte la porte 4 hors du relais', OPTIONS, async () => {
+  await avecPage(fixtureBusASature(fx.fixtureMlr8Commande(TIL)), async ({ page, erreurs }) => {
+    await installerEtatConflit(page);
+    await page.evaluate(() => ouvrirPorteEditor(4, 'hardware'));
+    await choisirMlp2Plein(page, 'module:MA1');
+    const bouton = page.locator('#mlp2-conflict-body button', { hasText: 'Créer une Tillys + MLP2 et affecter' });
+    assert.equal(await bouton.count(), 1, 'precondition : bus A sature, bouton « Créer une Tillys + MLP2 et affecter » propose');
+    await bouton.click();
+    await validerEditeurParClic(page);
+    const etat = await page.evaluate(() => ({
+      nbTillys: APP.tillys.length,
+      source: window.__porteStockee(0, 4),
+      deplacee: window.__porteStockee(1, 4),
+      mr9: window.__mr9(),
+    }));
+    assert.equal(etat.nbTillys, 2, 'une Tillys creee');
+    assert.ok(etat.deplacee && etat.deplacee.active, 'porte 4 absente de la nouvelle Tillys');
+    assert.equal(etat.deplacee.designation, 'Portail parking');
+    assert.equal(etat.deplacee.module && etat.deplacee.module.type, 'MLP2', 'la porte 4 deplacee n\'est pas sur un MLP2');
+    assert.ok(etat.deplacee.module.doorNums.includes(4), 'le MLP2 de la nouvelle Tillys ne liste pas la porte 4');
+    assert.deepEqual(etat.deplacee.mlr8Cles, [], `cles mlr8* stockees : ${etat.deplacee.mlr8Cles.join(', ')}`);
+    assert.equal(etat.deplacee.commandeSeule, false, 'porte 4 deplacee encore commande seule');
+    assert.ok(!etat.source.active, 'la porte 4 reste active dans la Tillys d\'origine');
+    assert.deepEqual(etat.mr9, [], `MLR8 A9 garde la porte : doorNums ${etat.mr9.join(',')}`);
+    assert.deepEqual(erreurs.map(e => e.message), [], 'erreurs JS');
+  });
+});
+
+// Porte 1 (LB, BP, DM) sans module ; bus A sature et aucun MLP2 ne peut
+// l'accueillir : MLP2 A1 (portes 3 et 7), A3 (porte 2, deux lecteurs), A5, A7.
+function fixtureConflitPorte1() {
+  const t = fixtureBusASature(fx.fixtureMlr8Commande(TIL));
+  Object.assign(t.portes[0], { mlp2ModuleId: '', mlp2Attribue: '' });
+  Object.assign(t.portes[6], {
+    active: true, designation: 'Bureau 7', batiment: 'A', etage: 'N0', numeroPorte: '7',
+    verrouillage: 'GACHE', lecteurEntree: 'LB', mlp2ModuleId: 'MA1', mlp2Attribue: 'MLP2 A1',
+  });
+  t.synopticModules.find(m => m.id === 'MA1').doorNums = [3, 7];
+  return t;
+}
+
+test('FE25 (caracterisation) porte 1 sur relais R5 puis MLP2 plein puis « Créer une Tillys + MLP2 » : LB, BP, DM retrouves, hors MLR8', OPTIONS, async () => {
+  await avecPage(fixtureConflitPorte1(), async ({ page, erreurs }) => {
+    await installerEtatConflit(page);
+    await installerChoisirMl(page);
+    const avant = await page.evaluate(() => {
+      ouvrirPorteEditor(1, 'hardware');
+      const p = PORTES_UI.editingDraft;
+      return { lecteurEntree: p.lecteurEntree, bp: Number(p.bp), dm: Number(p.dm) };
+    });
+    assert.deepEqual(avant, { lecteurEntree: 'LB', bp: 1, dm: 1 }, 'precondition : porte 1 avec LB, BP et DM');
+    await page.selectOption('#door-edit-body select[onchange*="assignerPorteAuMlp2Draft"]', 'relais:MR9:5');
+    const surRelais = await page.evaluate(() => {
+      const p = PORTES_UI.editingDraft;
+      return { select: window.__selectMl(), lecteurEntree: p.lecteurEntree, bp: Number(p.bp), dm: Number(p.dm) };
+    });
+    assert.deepEqual(surRelais, { select: 'relais:MR9:5', lecteurEntree: '', bp: 0, dm: 0 }, 'precondition : sur le relais R5, le brouillon est une commande seule');
+    await choisirMlp2Plein(page, 'module:MA3');
+    const bouton = page.locator('#mlp2-conflict-body button', { hasText: 'Créer une Tillys + MLP2 et affecter' });
+    assert.equal(await bouton.count(), 1, 'precondition : aucun MLP2 libre, bouton « Créer une Tillys + MLP2 et affecter » propose');
+    await bouton.click();
+    await validerEditeurParClic(page);
+    const etat = await page.evaluate(() => ({
+      nbTillys: APP.tillys.length,
+      source: window.__porteStockee(0, 1),
+      deplacee: window.__porteStockee(1, 1),
+      mr9: window.__mr9(),
+    }));
+    assert.equal(etat.nbTillys, 2, 'une Tillys creee');
+    assert.ok(etat.deplacee && etat.deplacee.active, 'porte 1 absente de la nouvelle Tillys');
+    assert.equal(etat.deplacee.designation, 'Local Velos');
+    assert.deepEqual({ lecteurEntree: etat.deplacee.lecteurEntree, bp: etat.deplacee.bp, dm: etat.deplacee.dm },
+      { lecteurEntree: 'LB', bp: 1, dm: 1 }, 'la porte deplacee a perdu lecteur, BP ou DM');
+    assert.equal(etat.deplacee.module && etat.deplacee.module.type, 'MLP2', 'la porte 1 deplacee n\'est pas sur un MLP2');
+    assert.deepEqual(etat.deplacee.mlr8Cles, [], `cles mlr8* stockees : ${etat.deplacee.mlr8Cles.join(', ')}`);
+    assert.equal(etat.deplacee.commandeSeule, false, 'porte 1 deplacee encore commande seule');
+    assert.ok(!etat.source.active, 'la porte 1 reste active dans la Tillys d\'origine');
+    assert.ok(!etat.mr9.includes(1), `porte 1 encore sur le MLR8 A9 : doorNums ${etat.mr9.join(',')}`);
+    assert.deepEqual(etat.mr9, [4], 'le MLR8 A9 garde la porte 4');
+    assert.deepEqual(erreurs.map(e => e.message), [], 'erreurs JS');
+  });
 });

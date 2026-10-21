@@ -242,61 +242,11 @@ test('E9 impression du synoptique coffret : A4 paysage et logo charge', OPTIONS,
   });
 });
 
-test('E10a bouton « Export PDF » de la liste des portes', OPTIONS, async () => {
-  await avecPage(fx.fixtureBase(TIL), async ({ page }) => {
-    const bouton = page.locator('button[onclick="exporterListePortesPdf()"]');
-    assert.equal(await bouton.count(), 1, 'bouton exporterListePortesPdf() absent');
-    assert.equal((await bouton.textContent()).trim(), 'Export PDF');
-  });
-});
-
-test('E10b PDF de reperage, 24 portes : sections, suites, cartouche en bas, pagination', OPTIONS, async () => {
-  await avecPage(fx.fixture24Portes(TIL), async ({ context, page }) => {
-    const popup = await capturerPopup(context, page, () => exporterListePortesPdf());
-    await popup.waitForFunction(() => document.querySelectorAll('.rep-page').length > 0);
-    const mesure = await popup.evaluate(() => [...document.querySelectorAll('.rep-page')].map(pageEl => {
-      const body = pageEl.querySelector('.rep-body');
-      const cartouche = pageEl.querySelector('.rep-cartouche');
-      const rectPage = pageEl.getBoundingClientRect();
-      const bordBas = parseFloat(getComputedStyle(pageEl).borderBottomWidth) || 0;
-      const blocs = [];
-      [...body.children].forEach(el => {
-        if (el.classList.contains('rep-section-titre')) blocs.push({ titre: el.textContent.trim(), lignes: 0 });
-        else if (el.tagName === 'TABLE' && blocs.length) blocs[blocs.length - 1].lignes = el.querySelectorAll('tbody tr').length;
-      });
-      return {
-        scrollHeight: body.scrollHeight,
-        clientHeight: body.clientHeight,
-        dernier: pageEl.lastElementChild ? pageEl.lastElementChild.className : '',
-        basCartouche: cartouche ? cartouche.getBoundingClientRect().bottom : NaN,
-        basPage: rectPage.bottom - bordBas,
-        meta: (pageEl.querySelector('.rep-meta') || {}).textContent || '',
-        blocs,
-      };
-    }));
-
-    const total = mesure.length;
-    assert.ok(total >= 2, `24 portes a designations longues : plusieurs pages attendues, ${total} obtenue(s)`);
-    mesure.forEach((p, i) => {
-      assert.ok(p.scrollHeight <= p.clientHeight + 1, `page ${i + 1} : contenu deborde (${p.scrollHeight} > ${p.clientHeight})`);
-      assert.match(p.dernier, /\brep-cartouche\b/, `page ${i + 1} : le cartouche doit etre le dernier element`);
-      assert.ok(Math.abs(p.basCartouche - p.basPage) <= 1, `page ${i + 1} : cartouche decolle du bas (${p.basCartouche} / ${p.basPage})`);
-      assert.match(p.meta, new RegExp(`Page ${i + 1}/${total}(?!\\d)`), `page ${i + 1} : pagination`);
-    });
-
-    const blocs = mesure.flatMap(p => p.blocs);
-    const base = titre => titre.replace(/\s*\(suite\)$/, '');
-    const sections = [...new Set(blocs.map(b => base(b.titre)))];
-    assert.equal(sections.length, 3, `3 sections attendues : ${sections.join(' | ')}`);
-    sections.forEach(section => {
-      const siens = blocs.filter(b => base(b.titre) === section);
-      assert.ok(!/\(suite\)$/.test(siens[0].titre), `${section} : le premier bloc n'est pas une suite`);
-      siens.slice(1).forEach(b => assert.match(b.titre, /\(suite\)$/, `${section} : bloc coupe sans « (suite) »`));
-      assert.equal(siens.reduce((s, b) => s + b.lignes, 0), 24, `${section} : 24 lignes au total`);
-    });
-    assert.ok(blocs.some(b => /\(suite\)$/.test(b.titre)), 'au moins une section coupee attendue avec 24 portes');
-  });
-});
+// E10a (bouton « Export PDF ») et E10b (pages .rep-page du tableau de reperage
+// A4 paysage) sont retires : le plan « Logiciel TIL V2 » remplace ce document par
+// la liste de porte A4 portrait du bouton « 🖨 Liste de porte », testee par L1 a L7
+// dans impressions-liste-carnet.test.js. E10c (aucune fenetre sans porte active)
+// reste valable.
 
 test('E10c PDF de reperage sans porte active : aucune fenetre ouverte', OPTIONS, async () => {
   await avecPage(fx.fixtureSansPorteActive(TIL), async ({ context, page }) => {

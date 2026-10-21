@@ -173,8 +173,61 @@ function fixtureBio(TIL) {
   return t;
 }
 
+// ── Logiciel TIL V2 ────────────────────────────────────────────────────
+
+// Porte 3 (rang 1 du MLP2 A1) sans aucun lecteur : lecteur d'entree « — ».
+function fixtureSansLecteur(TIL) {
+  const t = fixtureBase(TIL);
+  Object.assign(t.portes[2], { lecteurEntree: '', numeroEntree: '', lecteurSortie: '', numeroSortie: '' });
+  return t;
+}
+
+// Modules terrain + porte 4 « commande seule » sur le relais 3 du MLR8 A9 :
+// portail pilote par l'hyperviseur, sans lecteur ni retour d'etat.
+function fixtureMlr8Commande(TIL) {
+  const t = fixtureModulesTerrain(TIL);
+  configurerPorte(t, 4, {
+    designation: 'Portail parking', batiment: 'A', etage: 'N0', numeroPorte: '4',
+    verrouillage: 'CMD', lecteurEntree: '', numeroEntree: '', lecteurSortie: '',
+    mlr8Relais: 3,
+  });
+  t.synopticModules.find(m => m.id === 'MR9').doorNums = [4];
+  return t;
+}
+
+// Fixture de reference + deux portes du batiment B (non raccordees) :
+//  - porte 5 (B_N1_5) en CMD
+//  - porte 6 (B_N1_6) en ALIGATOR
+function fixtureDeuxBatiments(TIL) {
+  const t = fixtureBase(TIL);
+  configurerPorte(t, 5, {
+    designation: 'Parking', batiment: 'B', etage: 'N1', numeroPorte: '5',
+    verrouillage: 'CMD', lecteurEntree: 'LB',
+  });
+  configurerPorte(t, 6, {
+    designation: 'Local technique', batiment: 'B', etage: 'N1', numeroPorte: '6',
+    verrouillage: 'ALIGATOR', lecteurEntree: 'LB',
+  });
+  return t;
+}
+
+// Fixture de reference avec les fonctions microcode coupees :
+//  - porte 1 : Cmd Hypervision, Timer, POTL et Effraction desactives
+//  - porte 3 : POTL seul desactive (Timer actif)
+//  - porte 2 : tout actif (temoin)
+function fixtureOptionsOff(TIL) {
+  const t = fixtureBase(TIL);
+  Object.assign(t.portes[0], { cmdHyperActif: false, timerActif: false, potlActif: false, effractionActive: false });
+  Object.assign(t.portes[2], { timerActif: true, potlActif: false });
+  return t;
+}
+
 module.exports = {
   fixtureBase,
+  fixtureSansLecteur,
+  fixtureMlr8Commande,
+  fixtureDeuxBatiments,
+  fixtureOptionsOff,
   fixtureBusB,
   fixtureBusC,
   fixtureLA5,

@@ -158,7 +158,8 @@ function controlerPorteAperio(p, d, id, liste, regs, options, note) {
 // Lecteur biometrique (LBio) : l'ouverture n'a lieu que si BIO_STATUS == 00 ;
 // sous INTERDIT, signalisation selon BIO_STATUS 01, 02 et 00.
 function controlerBiometrie(p, d, id, liste, note) {
-  [[p.lecteurEntree, d.lecteur], [p.lecteurSortie, d.lecteurSortie]].forEach(([type, lecteur]) => {
+  // Porte a lecteur de sortie seul : la tete de la porte porte ce lecteur.
+  [[p.lecteurEntree || p.lecteurSortie, d.lecteur], [p.lecteurSortie, d.lecteurSortie]].forEach(([type, lecteur]) => {
     if (!lecteur) return;
     const statut = `BIO_STATUS_${lecteur.slice(1)}`;
     if (String(type || '').trim().toUpperCase() !== 'LBIO') {
@@ -173,6 +174,56 @@ function controlerBiometrie(p, d, id, liste, note) {
       if (!interdit.includes(`SI(${statut}==${v})`)) note('ERREUR', `${id} : ${lecteur} INTERDIT sans SI(${statut}==${v})`);
     });
   });
+}
+
+// Porte « commande seule » sur un relais de MLR8 (portail, barriere) : le relais
+// X{bus}{adresse}0{n} et le registre M{24 + porte} (25..48, hors plage des tetes
+// 1..24), rien d'autre. Microcode : EV(Mxx==actif) puis le PULSE du relais ;
+// serveur -> UTL : .cmd seulement ; UTL -> serveur : aucune propriete.
+const CHAMPS_VIDES_COMMANDE_SEULE = ['lecteur', 'ledVert', 'ledRouge', 'buzzer', 'capteur', 'bp', 'dm', 'ap',
+  'timer', 'regEffrac', 'regPotl', 'pescort', 'lecteurSortie', 'ledVertSortie', 'ledRougeSortie', 'buzzerSortie'];
+
+function controlerCommandeSeule(p, d, id, bloc, contexte, note) {
+  const { utl, srv, options } = contexte;
+  const relais = Number(d.relais);
+  if (!(relais >= 1 && relais <= 8)) note('ERREUR', `${id} : relais MLR8 ${d.relais} hors 1..8`);
+  const lock = `X${d.bus}${d.carte}0${relais}`;
+  if (d.lock !== lock) note('ERREUR', `${id} : relais ${d.lock} au lieu de ${lock}`);
+  if (d.cmdHyper !== `M${24 + d.porteNum}`) note('ERREUR', `${id} : cmdHyper=${d.cmdHyper} au lieu de M${24 + d.porteNum}`);
+  const m = String(d.cmdHyper || '').match(/^M(\d+)$/);
+  if (!m || Number(m[1]) < 25 || Number(m[1]) > 48) note('ERREUR', `${id} : commande ${d.cmdHyper} hors M25..M48`);
+  CHAMPS_VIDES_COMMANDE_SEULE.forEach(champ => {
+    if (d[champ]) note('ERREUR', `${id} : commande seule avec ${champ}=${d[champ]}`);
+  });
+  if (Number(d.lecteurNum) !== 0) note('ERREUR', `${id} : commande seule avec lecteurNum=${d.lecteurNum}`);
+  if (d.bpActif || d.dmActif || d.apActif) note('ERREUR', `${id} : commande seule avec BP / DM / AP actif`);
+
+  const liste = bloc ? instructionsBloc(bloc) : [];
+  const actif = options && options.commandPolarity === 'inverted' ? 0 : 1;
+  const pulse = p.dureePulse || (options && options.pulse) || 50;
+  if (p.cmdHyperActif !== false) {
+    const attendu = [`EV(${d.cmdHyper}==${actif})`, `${d.lock}=PULSE(${pulse})`];
+    if (!bloc) note('ERREUR', `${id} : bloc absent du microcode`);
+    else if (liste.join(' | ') !== attendu.join(' | ')) note('ERREUR', `${id} : bloc commande seule « ${liste.join(' | ')} » au lieu de « ${attendu.join(' | ')} »`);
+    if (proprieteDe(srv, id, 'cmd') !== d.cmdHyper) note('ERREUR', `${id} : .cmd incoherent`);
+  } else {
+    if (liste.length) note('ERREUR', `${id} : commande hyperviseur desactivee mais bloc « ${liste.join(' | ')} »`);
+    if (proprieteDe(srv, id, 'cmd') !== null) note('ERREUR', `${id} : .cmd present alors que la commande est desactivee`);
+  }
+  // Aucun retour d'etat : ni .locked, ni .forced, ni .potl, ni .dm, ni .ap.
+  utl.split('\n').filter(l => l.startsWith(`${id}.`)).forEach(l => note('ERREUR', `${id} : propriete UTL -> serveur inattendue ${l.trim()}`));
+}
+
+// Valeur d'une propriete « id.cle=valeur », ou null si absente.
+function proprieteDe(texte, id, cle) {
+  const debut = `${id}.${cle}=`;
+  const ligne = texte.split('\n').find(x => x.startsWith(debut));
+  return ligne ? ligne.slice(debut.length).trim() : null;
+}
+
+// Porte sans lecteur (ni entree ni sortie) : ni tete, ni LED, ni buzzer.
+function estPorteSansLecteur(p) {
+  return !String(p.lecteurEntree || '').trim() && !String(p.lecteurSortie || '').trim();
 }
 
 function controlerTillys(TIL, tillys, options) {
@@ -191,19 +242,45 @@ function controlerTillys(TIL, tillys, options) {
     if (proprietaire[reg] && proprietaire[reg] !== qui) note('ERREUR', `${reg} partage entre ${proprietaire[reg]} et ${qui}`);
     proprietaire[reg] = qui;
   };
-  const propriete = (texte, id, cle) => {
-    const debut = `${id}.${cle}=`;
-    const ligne = texte.split('\n').find(x => x.startsWith(debut));
-    return ligne ? ligne.slice(debut.length).trim() : null;
-  };
+  const propriete = proprieteDe;
+
+  // Toute porte active rattachee a un MLR8 (8 relais au plus) est une porte
+  // « commande seule » : elle doit etre raccordee et generee comme telle.
+  (tillys.synopticModules || []).filter(m => m.type === 'MLR8').forEach(m => {
+    (m.doorNums || []).slice(0, 8).forEach(num => {
+      const p = tillys.portes[num - 1];
+      const d = tableau.find(l => l.porteNum === num);
+      if (p && p.active && d && !(d.raccorde && d.commandeSeule)) {
+        note('ERREUR', `${d.triNum} : porte du ${m.name} non generee en commande seule`);
+      }
+    });
+  });
 
   tableau.filter(d => d.active && d.raccorde).forEach(d => {
     const p = tillys.portes[d.porteNum - 1];
     const id = d.triNum;
     const bloc = blocs.find(b => b.startsWith(`${id} `)) || '';
+
+    if (d.commandeSeule) {
+      controlerCommandeSeule(p, d, id, bloc, { utl, srv, options }, note);
+      [d.lock, d.cmdHyper].filter(Boolean).forEach(r => prendre(r, id));
+      return;
+    }
+
     if (!bloc) { note('ERREUR', `${id} : bloc absent du microcode`); return; }
     const regs = new Set(bloc.match(/\b(?:X[ABC]\d{4}|D[ABC]\d{4}|L[ABC]\d+|TN\d+|[MRV]\d+)\b/g) || []);
     const timerPotl = p.timerActif !== false && p.potlActif !== false;
+    // Numero de la tete de la porte, qu'elle ait un lecteur ou non.
+    const tete = (TIL.BUS_OFFSETS[d.bus] || 0) + Number(d.adresseModule) + Number(d.rang);
+    const sansLecteur = estPorteSansLecteur(p) && !estPorteAperio(p);
+
+    // Porte sans lecteur : ni tete, ni LED, ni buzzer (relais, capteur et
+    // registres de la porte inchanges).
+    if (sansLecteur) {
+      ['lecteur', 'ledVert', 'ledRouge', 'buzzer', 'lecteurSortie', 'ledVertSortie', 'ledRougeSortie', 'buzzerSortie'].forEach(champ => {
+        if (d[champ]) note('ERREUR', `${id} : porte sans lecteur avec ${champ}=${d[champ]}`);
+      });
+    }
 
     // Registres du microcode = registres du tableau d'adresses.
     const attendus = [d.lock, d.ledVert, d.ledRouge, d.lecteur];
@@ -221,9 +298,9 @@ function controlerTillys(TIL, tillys, options) {
     if (!timerPotl && regs.has(d.timer)) note('ERREUR', `${id} : Timer / POTL desactive mais ${d.timer} present`);
     if (p.effractionActive === false && regs.has(d.regEffrac)) note('ERREUR', `${id} : effraction desactivee mais ${d.regEffrac} present`);
 
-    // Registres virtuels = numero de la tete de lecture.
+    // Registres virtuels = numero de la tete de lecture (meme sans lecteur).
     [['cmdHyper', 'M'], ['timer', 'TN'], ['regEffrac', 'R'], ['regPotl', 'V']].forEach(([cle, prefixe]) => {
-      if (d[cle] !== `${prefixe}${d.lecteurNum}`) note('ERREUR', `${id} : ${cle}=${d[cle]} au lieu de ${prefixe}${d.lecteurNum}`);
+      if (d[cle] !== `${prefixe}${tete}`) note('ERREUR', `${id} : ${cle}=${d[cle]} au lieu de ${prefixe}${tete}`);
     });
 
     // Proprietes echangees avec le serveur.
@@ -235,14 +312,18 @@ function controlerTillys(TIL, tillys, options) {
     if ((Number(p.barreAntiPanique) === 1) !== (propriete(utl, id, 'ap') === d.ap)) note('ERREUR', `${id} : .ap incoherent`);
 
     // Lecteur clavier : modele TIL LC (PCLVx=3,4,10 et evenements CR_*).
-    [[p.lecteurEntree, d.lecteur, d.lecteurNum], [p.lecteurSortie, d.lecteurSortie, d.lecteurNum + 1]].forEach(([type, lecteur, num]) => {
+    [[p.lecteurEntree || p.lecteurSortie, d.lecteur, tete], [p.lecteurSortie, d.lecteurSortie, tete + 1]].forEach(([type, lecteur, num]) => {
       if (String(type || '').toUpperCase() !== 'LCODE' || !lecteur) return;
       ['AUTORISE', 'CR_OK', 'CR_KO', 'CR_TIMEOUT', 'INTERDIT'].forEach(ev => {
         if (!bloc.includes(`EV(${lecteur}==${ev})`)) note('ECART', `${id} : lecteur clavier ${lecteur} sans EV(${lecteur}==${ev})`);
       });
       if (!new RegExp(`^PCLV${num}=3,4,10`, 'm').test(code)) note('ECART', `${id} : lecteur clavier ${lecteur} sans PCLV${num}=3,4,10`);
     });
-    if (p.mode === 'visiteur' && !new RegExp(`^PESCORT${d.lecteurNum}=`, 'm').test(code)) note('ERREUR', `${id} : visiteur sans PESCORT${d.lecteurNum}`);
+    // Mode visiteur : escorte sur la tete de la porte, jamais sans lecteur.
+    const escorte = new RegExp(`^PESCORT${tete}=`, 'm').test(code);
+    if (p.mode === 'visiteur' && d.lecteur && !escorte) note('ERREUR', `${id} : visiteur sans PESCORT${tete}`);
+    if (sansLecteur && escorte) note('ERREUR', `${id} : PESCORT${tete} sur une porte sans lecteur`);
+    if (sansLecteur && /VISIT_AUTORISE|ATT_ESCORTE|ESCORTE_KO/.test(bloc)) note('ERREUR', `${id} : evenements visiteur sur une porte sans lecteur`);
 
     const liste = instructionsBloc(bloc);
     if (estPorteAperio(p)) controlerPorteAperio(p, d, id, liste, regs, options, note);
@@ -277,9 +358,13 @@ function controlerTillys(TIL, tillys, options) {
 //  - biometrie : garde les lecteurs LBio tires au sort (sinon LB, meme tirage) et
 //    autorise un lecteur de sortie LBio ;
 //  - aperio : ajoute des portes APERIO (serrure + lecteur, ou lecteur seul) et
-//    fait varier la duree d'ouverture (plafond PULSE 50 des serrures APERIO).
+//    fait varier la duree d'ouverture (plafond PULSE 50 des serrures APERIO) ;
+//  - mlr8 : ajoute des portes « commande seule » sur les relais d'un MLR8 par bus
+//    (relais demande parfois invalide ou deja pris) et retire les lecteurs de
+//    quelques portes de MLP2 (porte sans lecteur, ou lecteur de sortie seul).
+//    Ces tirages viennent apres tous les autres.
 // Sans option, la suite des tirages est celle d'origine (S4 inchange).
-function projetAleatoire(TIL, graine, { aperio = false, biometrie = false } = {}) {
+function projetAleatoire(TIL, graine, { aperio = false, biometrie = false, mlr8 = false } = {}) {
   let s = graine;
   const r = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
   const choix = a => a[Math.floor(r() * a.length)];
@@ -321,7 +406,47 @@ function projetAleatoire(TIL, graine, { aperio = false, biometrie = false } = {}
     if (r() < 0.5) { const a = TIL.allocateAddress(t, bus, 'MLR8'); if (a) t.synopticModules.push({ id: `R8${bus}`, type: 'MLR8', bus, address: a, name: `MLR8 ${bus}${a}`, doorNums: [] }); }
   });
   if (num <= 24 && r() < 0.3) Object.assign(t.portes[num - 1], { active: true, numeroPorte: String(100 + num), designation: 'Orpheline', lecteurEntree: 'LB' });
+  if (mlr8) ajouterTiragesMlr8(TIL, t, r, choix);
   return t;
+}
+
+// Tirages de l'option mlr8, apres ceux du projet de base.
+function ajouterTiragesMlr8(TIL, t, r, choix) {
+  // Portes de MLP2 sans lecteur, ou avec un lecteur de sortie seul.
+  t.synopticModules.filter(m => m.type === 'MLP2').forEach(module => {
+    module.doorNums.forEach(num => {
+      const porte = t.portes[num - 1];
+      const u = r();
+      if (estPorteAperio(porte)) return;
+      if (u < 0.15) Object.assign(porte, { lecteurEntree: '', numeroEntree: '', lecteurSortie: '', numeroSortie: '' });
+      else if (u < 0.22 && !porte.lecteurSortie) Object.assign(porte, { lecteurEntree: '', numeroEntree: '', lecteurSortie: 'LB' });
+    });
+  });
+
+  // Portes libres (inactives et hors module) pour les commandes seules.
+  const prises = new Set(t.synopticModules.flatMap(m => m.doorNums));
+  const libres = t.portes.map((p, i) => i + 1).filter(num => !t.portes[num - 1].active && !prises.has(num));
+  ['A', 'B', 'C'].forEach(bus => {
+    let module = t.synopticModules.find(m => m.type === 'MLR8' && m.bus === bus);
+    if (!module) {
+      const address = TIL.allocateAddress(t, bus, 'MLR8');
+      if (!address) return;
+      module = { id: `R8${bus}`, type: 'MLR8', bus, address, name: `MLR8 ${bus}${address}`, doorNums: [] };
+      t.synopticModules.push(module);
+    }
+    const nombre = 1 + Math.floor(r() * 3);
+    for (let k = 0; k < nombre && libres.length && module.doorNums.length < 8; k += 1) {
+      const num = libres.shift();
+      Object.assign(t.portes[num - 1], {
+        active: r() < 0.9, batiment: choix(['A', 'B']), etage: choix(['N0', 'N1']), numeroPorte: String(100 + num),
+        designation: `Commande ${num}`, verrouillage: 'CMD', lecteurEntree: '', numeroEntree: '', lecteurSortie: '',
+        // Equipements saisis a tort sur un portail : ignores par la commande seule.
+        bp: r() < 0.5 ? 1 : 0, dm: r() < 0.5 ? 1 : 0, barreAntiPanique: r() < 0.2 ? 1 : 0, mode: r() < 0.2 ? 'visiteur' : 'standard',
+        cmdHyperActif: r() > 0.15, mlr8Relais: choix([0, 1, 3, 3, 5, 8, 9, undefined]), mlp2ModuleId: '',
+      });
+      module.doorNums.push(num);
+    }
+  });
 }
 
 module.exports = { registreValide, controlerSyntaxe, controlerTillys, projetAleatoire, estPorteAperio };

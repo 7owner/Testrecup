@@ -99,3 +99,55 @@ test('S7 300 projets aleatoires avec portes APERIO et lecteurs biometriques : au
   assert.deepEqual(erreurs, []);
   assert.ok(portes > 1000, `trop peu de portes generees (${portes})`);
 });
+
+// ── Logiciel TIL V2 : porte sans lecteur, commande seule sur relais MLR8 ──
+
+test('S8 fixtures porte sans lecteur et commande seule MLR8 : microcode coherent avec le tableau et le systeme', () => {
+  [fx.fixtureSansLecteur, fx.fixtureMlr8Commande].forEach(fabrique => {
+    const resultat = controlerTillys(TIL, fabrique(TIL), OPTIONS);
+    assert.deepEqual(problemes(resultat), [], fabrique.name);
+  });
+  const t = fx.fixtureMlr8Commande(TIL);
+  const porte4 = TIL.genererTableauAdresses(t).find(l => l.porteNum === 4);
+  assert.equal(porte4.commandeSeule, true, 'porte 4 : commande seule dans le tableau d\'adresses');
+  assert.equal(controlerTillys(TIL, t, OPTIONS).portes, 4, 'portes generees : 1, 2, 3 (MLP2) et 4 (MLR8), pas la 10 orpheline');
+  // Polarite inversee et commande coupee restent coherentes.
+  assert.deepEqual(problemes(controlerTillys(TIL, t, { ...OPTIONS, commandPolarity: 'inverted' })), [], 'polarite inversee');
+  t.portes[3].cmdHyperActif = false;
+  assert.deepEqual(problemes(controlerTillys(TIL, t, OPTIONS)), [], 'commande hyperviseur coupee');
+});
+
+test('S9 300 projets aleatoires avec commandes seules MLR8 et portes sans lecteur : aucune incoherence', () => {
+  let portes = 0;
+  let commandes = 0;
+  let sansLecteur = 0;
+  const erreurs = [];
+  for (let graine = 1; graine <= 300; graine += 1) {
+    const t = projetAleatoire(TIL, graine, { mlr8: true });
+    TIL.genererTableauAdresses(t).filter(d => d.active).forEach(d => {
+      if (d.commandeSeule) commandes += 1;
+      const p = t.portes[d.porteNum - 1];
+      if (d.raccorde && !d.commandeSeule && !p.lecteurEntree && !p.lecteurSortie) sansLecteur += 1;
+    });
+    const resultat = controlerTillys(TIL, t, OPTIONS);
+    portes += resultat.portes;
+    problemes(resultat).forEach(m => { if (erreurs.length < 10) erreurs.push(`graine ${graine} : ${m}`); });
+  }
+  assert.deepEqual(erreurs, []);
+  assert.ok(commandes > 300, `trop peu de portes commande seule generees (${commandes})`);
+  assert.ok(sansLecteur > 100, `trop peu de portes sans lecteur raccordees (${sansLecteur})`);
+  assert.ok(portes > 1000, `trop peu de portes generees (${portes})`);
+});
+
+test('S10 le controle detecte une commande seule mal generee (LED en trop, retour .locked)', () => {
+  const t = fx.fixtureMlr8Commande(TIL);
+  const fausse = (cle, transformer) => ({ ...TIL, [cle]: (tillys, options) => transformer(TIL[cle](tillys, options)) });
+  // Microcode : une voie de plus apres l'ouverture du relais 3.
+  const ledEnTrop = fausse('genererMicrocodeTillys', code => code.replace(/^(\s*XA0903=PULSE\(\d+\).*)$/m, '$1\n   XA0904=PULSE(30)'));
+  assert.ok(problemes(controlerTillys(ledEnTrop, t, OPTIONS)).some(m => m.includes('A_N0_4') && m.includes('XA0904')),
+    'une instruction en trop dans le bloc de la commande seule doit etre signalee');
+  // UTL -> serveur : un retour d'etat sur une porte qui n'en a pas.
+  const retour = fausse('genererUTLVersServeur', texte => `${texte}\nA_N0_4.locked=DA0902\n`);
+  assert.ok(problemes(controlerTillys(retour, t, OPTIONS)).some(m => m.includes('A_N0_4') && m.includes('.locked')),
+    'une propriete .locked sur une commande seule doit etre signalee');
+});
